@@ -25,6 +25,14 @@ def test_allowed_data_types_follow_the_standard() -> None:
     assert DataType.INT8 in allowed_data_types(SdfDialect.BCR_1_0)
 
 
+def test_unsigned_data_types_are_only_allowed_for_bcr() -> None:
+    unsigned = [DataType.UINT8, DataType.UINT16, DataType.UINT32]
+
+    assert allowed_data_types(SdfDialect.BCR_1_0)[:3] == unsigned
+    for dialect in (SdfDialect.ISO_1_0, SdfDialect.ISO_2_0):
+        assert not set(unsigned) & set(allowed_data_types(dialect))
+
+
 def test_conversion_keeps_the_scale_when_the_data_fits() -> None:
     sdf = make_sdf(make_ramp())
     converted = convert_for_export(sdf, SdfDialect.ISO_1_0, DataType.INT32)
@@ -94,3 +102,19 @@ def test_format_problem_reports_binary_limit_by_actual_write(tmp_path: Path) -> 
         else:
             with pytest.raises(SdfFormatError):
                 sdf.save(tmp_path / "bad.sdf", format=sdfio.FileFormat.BINARY)
+
+
+@pytest.mark.parametrize("data_type", [DataType.UINT8, DataType.UINT16, DataType.UINT32])
+@pytest.mark.parametrize("binary", [True, False])
+def test_unsigned_bcr_files_round_trip(data_type: DataType, binary: bool, tmp_path: Path) -> None:
+    path = tmp_path / "out.sdf"
+    file_format = sdfio.FileFormat.BINARY if binary else sdfio.FileFormat.ASCII
+    convert_for_export(make_sdf(make_ramp()), SdfDialect.BCR_1_0, data_type).save(
+        path, format=file_format
+    )
+    loaded = sdfio.read(path)
+
+    assert loaded.header.dialect is SdfDialect.BCR_1_0
+    assert loaded.data_type is data_type
+    assert np.array_equal(np.isnan(loaded.data), np.isnan(make_ramp()))
+    np.testing.assert_allclose(loaded.data, make_ramp(), atol=1e-9, equal_nan=True)

@@ -355,9 +355,9 @@ wheels = [
 
 [[packages]]
 name = "sdfio"
-version = "1.2.1"
-sdist = { url = "https://files.pythonhosted.org/packages/44/f7/fb2300ba86d2d38867c6dbe8b1d7391a7e9cd90980a6b350f394e6519c3c/sdfio-1.2.1.tar.gz", upload-time = 2026-09-24T11:11:07Z, size = 69786, hashes = { sha256 = "f202210d7b8ade738520b1a436162dcb2ba90bcc289d78429c196993cd58b808" } }
-wheels = [{ url = "https://files.pythonhosted.org/packages/d1/49/bcd8e788a7967ca97973d335d6adfa5cc27e8b3fe09339b40aaad7fdf3f0/sdfio-1.2.1-py3-none-any.whl", upload-time = 2026-09-24T11:11:05Z, size = 32958, hashes = { sha256 = "3cc1de14dd07b18ff9fe189163ac54fd7f65d755d7c4ded1fa0e6667a3b1b813" } }]
+version = "1.3.0"
+sdist = { url = "https://files.pythonhosted.org/packages/66/f8/31ef508981b4fe4a76c954266346f195106f2c8b78d4670391e3497968a4/sdfio-1.3.0.tar.gz", upload-time = 2026-09-30T20:27:41Z, size = 74941, hashes = { sha256 = "34b83c200d9361fec2733be561a3eef5f0a4de5839463b419e142e5a2fb6b126" } }
+wheels = [{ url = "https://files.pythonhosted.org/packages/ac/2a/ccde15e8d585e209a3329921f12deead2eca822eee41c9540da695811cec/sdfio-1.3.0-py3-none-any.whl", upload-time = 2026-09-30T20:27:39Z, size = 35147, hashes = { sha256 = "032e3fd9a437c72f5026267898814fabc83a5ddbff15697890f642333dd894f3" } }]
 
 [[packages]]
 name = "setuptools"

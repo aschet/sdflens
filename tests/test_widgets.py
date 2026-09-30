@@ -624,6 +624,19 @@ def test_save_as_dialog_presets_and_disables_unsupported_data_types(ramp_path: P
     assert dialog.data_type.name == "INT16"  # INT8 isn't defined for ISO-1.0
 
 
+def test_save_as_dialog_offers_unsigned_data_types_for_bcr_only(ramp_path: Path) -> None:
+    dialog = SaveAsDialog(sdfio.read(ramp_path))
+    unsigned = ["uint8", "uint16", "uint32"]
+
+    assert not set(unsigned) & set(_enabled(dialog._data_type))
+    dialog._version.setCurrentText("bBCR-1.0")
+    assert _enabled(dialog._data_type)[:3] == unsigned
+    dialog._data_type.setCurrentText("uint16")
+    assert dialog.data_type is sdfio.DataType.UINT16
+    dialog._version.setCurrentText("bISO-2.0")
+    assert dialog.data_type_name not in unsigned
+
+
 def test_save_as_dialog_uses_the_last_options_when_valid(ramp_path: Path) -> None:
     dialog = SaveAsDialog(sdfio.read(ramp_path), last=("aBCR-1.0", "int16"))
 
