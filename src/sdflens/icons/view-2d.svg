@@ -1,0 +1,13 @@
+<!-- SPDX-FileCopyrightText: 2026 Thomas Ascher <thomas.ascher@gmx.at> -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <rect x="3" y="3" width="5.5" height="5.5" rx="1" fill="#2f6fb0"/>
+  <rect x="9.25" y="3" width="5.5" height="5.5" rx="1" fill="#2f6fb0"/>
+  <rect x="15.5" y="3" width="5.5" height="5.5" rx="1" fill="#7fb8d8"/>
+  <rect x="3" y="9.25" width="5.5" height="5.5" rx="1" fill="#2f6fb0"/>
+  <rect x="9.25" y="9.25" width="5.5" height="5.5" rx="1" fill="#7fb8d8"/>
+  <rect x="15.5" y="9.25" width="5.5" height="5.5" rx="1" fill="#dbe8f6"/>
+  <rect x="3" y="15.5" width="5.5" height="5.5" rx="1" fill="#7fb8d8"/>
+  <rect x="9.25" y="15.5" width="5.5" height="5.5" rx="1" fill="#dbe8f6"/>
+  <rect x="15.5" y="15.5" width="5.5" height="5.5" rx="1" fill="#e8833a"/>
+</svg>

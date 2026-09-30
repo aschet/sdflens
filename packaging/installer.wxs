@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 Thomas Ascher <thomas.ascher@gmx.at>
+
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<!-- WiX installer; build_windows.ps1 defines Version, AppDir (PyInstaller output) and BuildDir. -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package
+    Name="sdflens"
+    Manufacturer="Thomas Ascher"
+    Version="$(Version)"
+    UpgradeCode="24B59A6F-A25F-47D6-8477-52C2DBF58DDC"
+    Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of sdflens is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="app.ico" SourceFile="$(BuildDir)\sdflens.ico" />
+    <Property Id="ARPPRODUCTICON" Value="app.ico" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(BuildDir)\LICENSE.rtf" />
+    <WixVariable Id="WixUIBannerBmp" Value="$(BuildDir)\banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(BuildDir)\dialog.bmp" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="sdflens" />
+    </StandardDirectory>
+
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(AppDir)\**" />
+    </ComponentGroup>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut">
+        <Shortcut Id="StartMenuShortcut" Name="sdflens" Target="[INSTALLFOLDER]sdflens.exe" WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU" Key="Software\sdflens\Installer" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopShortcut">
+        <Shortcut Id="DesktopShortcut" Name="sdflens" Target="[INSTALLFOLDER]sdflens.exe" WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU" Key="Software\sdflens\Installer" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Component Id="FileAssociation" Directory="INSTALLFOLDER">
+      <RegistryValue Root="HKLM" Key="Software\Classes\.sdf\OpenWithProgids" Name="sdflens.sdf" Type="string" Value="" KeyPath="yes" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\sdflens.sdf" Type="string" Value="Surface data file" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\sdflens.sdf\DefaultIcon" Type="string" Value="[INSTALLFOLDER]sdflens.exe,0" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\sdflens.sdf\shell\open\command" Type="string" Value="&quot;[INSTALLFOLDER]sdflens.exe&quot; &quot;%1&quot;" />
+    </Component>
+
+    <Feature Id="Main" Title="sdflens" Level="1" ConfigurableDirectory="INSTALLFOLDER">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <Feature Id="Association" Title="Open .sdf files with sdflens" Level="1">
+        <ComponentRef Id="FileAssociation" />
+      </Feature>
+      <Feature Id="DesktopShortcut" Title="Desktop shortcut" Level="2">
+        <ComponentRef Id="DesktopShortcut" />
+      </Feature>
+    </Feature>
+
+    <ui:WixUI Id="WixUI_FeatureTree" />
+  </Package>
+</Wix>
