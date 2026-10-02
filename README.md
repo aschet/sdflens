@@ -1,5 +1,7 @@
 # sdflens
 
+[![CI](https://github.com/aschet/sdflens/actions/workflows/ci.yml/badge.svg)](https://github.com/aschet/sdflens/actions/workflows/ci.yml)
+
 Qt based 3D, 2D and profile viewer for ISO 25178-71 Surface Data Files (`.sdf`), built on
 [sdfio](https://github.com/aschet/sdfio) and PySide6.
 
