@@ -2,11 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Surface model: coordinates and statistics of the height data of an SDF file."""
+"""Surface model: coordinates and statistics of the height data of a surface file."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 import numpy as np
 from numpy.typing import NDArray
@@ -14,7 +15,7 @@ from sdfio import SdfFile
 
 from .zscale import clamp_z_factor
 
-__all__ = ["NoMeasuredPointsError", "SurfaceModel", "ValueRange", "data_range"]
+__all__ = ["Model3D", "NoMeasuredPointsError", "SurfaceModel", "ValueRange", "data_range"]
 
 #: Fraction of the lateral extent the surface height should span by default.
 AUTO_HEIGHT_FRACTION = 0.15
@@ -28,6 +29,53 @@ ROBUST_PERCENTILES = (0.5, 99.5)
 
 class NoMeasuredPointsError(ValueError):
     """The file contains no measured (finite) height values."""
+
+
+class Model3D(Protocol):
+    """What the 3D view and the color bar need to know about a surface or a point cloud."""
+
+    @property
+    def value_range(self) -> ValueRange:
+        """Range of the measured heights in meters."""
+
+    @property
+    def invalid_count(self) -> int:
+        """Number of non-measured points."""
+
+    @property
+    def scale(self) -> float:
+        """Largest lateral extent in meters, which normalizes the scene."""
+
+    @property
+    def extent_x(self) -> float:
+        """Lateral extent along x in meters."""
+
+    @property
+    def extent_y(self) -> float:
+        """Lateral extent along y in meters."""
+
+    @property
+    def size_x(self) -> float:
+        """Measured size along x in meters."""
+
+    @property
+    def size_y(self) -> float:
+        """Measured size along y in meters."""
+
+    @property
+    def height_fraction(self) -> float:
+        """Height range relative to the lateral extent, at true scale."""
+
+    @property
+    def color_scale(self) -> float:
+        """Multiplier turning a normalized vertex z into a color fraction (with offset)."""
+
+    @property
+    def color_offset(self) -> float:
+        """Color fraction of a vertex at normalized z = 0."""
+
+    def auto_z_factor(self) -> float:
+        """Return the exaggeration making the typical height span a part of the extent."""
 
 
 @dataclass(frozen=True)
@@ -76,21 +124,27 @@ class SurfaceModel:
 
         :raises NoMeasuredPointsError: If every point is non-measured.
         """
-        data = np.asarray(sdf.data, dtype=np.float64)
-        x = sdf.x_axis
-        y = sdf.y_axis
+        return cls.from_grid(sdf.data, float(sdf.header.x_scale), float(sdf.header.y_scale))
+
+    @classmethod
+    def from_grid(cls, data: NDArray[np.float64], x_scale: float, y_scale: float) -> SurfaceModel:
+        """Build the model from a ``(rows, columns)`` grid of heights and its point spacing.
+
+        :raises NoMeasuredPointsError: If every point is non-measured.
+        """
+        data = np.asarray(data, dtype=np.float64)
         valid = np.isfinite(data)
         value_range = data_range(data)
 
-        extent_x = float(x[-1] - x[0])
-        extent_y = float(y[-1] - y[0])
-        scale = max(extent_x, extent_y) or max(sdf.header.x_scale, 1e-12)
+        extent_x = (data.shape[1] - 1) * x_scale
+        extent_y = (data.shape[0] - 1) * y_scale
+        scale = max(extent_x, extent_y) or max(x_scale, 1e-12)
         z_center = 0.5 * (value_range.lo + value_range.hi)
 
         return cls(
             data=data,
-            x_scale=float(sdf.header.x_scale),
-            y_scale=float(sdf.header.y_scale),
+            x_scale=x_scale,
+            y_scale=y_scale,
             valid=valid,
             value_range=value_range,
             z_mean=float(data[valid].mean()),

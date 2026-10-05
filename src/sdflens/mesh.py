@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Render mesh of a surface (NaN-aware vertices, triangles and grid lines), built with numpy."""
+"""Render mesh of a surface or point cloud (NaN-aware vertices, triangles, lines), with numpy."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
+from .pointcloud import PointCloudModel
 from .surface import SurfaceModel
 
 __all__ = ["MAX_MESH_POINTS", "SurfaceMesh"]
@@ -22,13 +23,13 @@ MAX_MESH_POINTS = 4_000_000
 
 @dataclass(frozen=True, eq=False)
 class SurfaceMesh:
-    """Vertices and primitive indices drawing a :class:`SurfaceModel`.
+    """Vertices and primitive indices drawing a :class:`SurfaceModel` or a point cloud.
 
     Vertex positions are centered and divided by :attr:`SurfaceModel.scale` (the largest
     lateral extent in meters), keeping float32 well conditioned for micrometer-sized data.
     Non-measured points keep a placeholder vertex that no primitive references. Grids larger
     than :data:`MAX_MESH_POINTS` are thinned out by ``step`` along both axes; ``valid`` matches
-    the thinned grid.
+    the thinned grid. A point cloud has no triangles or lines and is always drawn as points.
     """
 
     vertices: NDArray[np.float32]
@@ -36,6 +37,7 @@ class SurfaceMesh:
     lines: NDArray[np.uint32]
     valid: NDArray[np.bool_]
     step: int
+    is_cloud: bool = False
 
     @classmethod
     def from_model(cls, model: SurfaceModel) -> SurfaceMesh:
@@ -65,6 +67,28 @@ class SurfaceMesh:
             lines=_line_indices(valid),
             valid=valid,
             step=step,
+        )
+
+    @classmethod
+    def from_point_cloud(cls, model: PointCloudModel) -> SurfaceMesh:
+        """Build the mesh of the points of ``model``, which are all drawn."""
+        points = model.points
+        vertices = np.stack(
+            [
+                (points[:, 0] - model.center_x) / model.scale,
+                (points[:, 1] - model.center_y) / model.scale,
+                (points[:, 2] - model.z_center) / model.scale,
+            ],
+            axis=-1,
+        )
+        empty = np.empty(0, dtype=np.uint32)
+        return cls(
+            vertices=vertices.astype(np.float32),
+            triangles=empty,
+            lines=empty,
+            valid=np.ones(len(points), dtype=np.bool_),
+            step=1,
+            is_cloud=True,
         )
 
 

@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Main window: toolbars, 2D/3D views, color bar, information tab and file handling."""
+"""Main window: toolbars, 2D/3D/profile views, color bar, information panel and files."""
 
 from __future__ import annotations
 
@@ -48,9 +48,11 @@ from .icons import app_icon, load_icon
 from .infopanel import InfoPanel
 from .loader import Loader
 from .mesh import SurfaceMesh
+from .pointcloud import PointCloudModel
 from .profileview import ProfileView
 from .settings import Settings
-from .surface import SurfaceModel
+from .surface import Model3D, SurfaceModel
+from .surfacefile import SurfaceFile
 from .units import format_values
 from .viewport import Viewport
 from .zscalebar import ZScaleBar
@@ -69,8 +71,9 @@ class MainWindow(QMainWindow):
         """Create the window with no file loaded."""
         super().__init__()
         self._settings = Settings()
-        self._sdf: sdfio.SdfFile | None = None
-        self._model: SurfaceModel | None = None
+        self._file: SurfaceFile | None = None
+        self._model: SurfaceModel | PointCloudModel | None = None
+        self._view_preference = _VIEW_3D
         self._path: str | None = None
 
         self._surface_view = SurfaceView(self)
@@ -119,7 +122,7 @@ class MainWindow(QMainWindow):
         self.setAcceptDrops(True)
         self.setWindowIcon(app_icon())
         self._update_title()
-        self.statusBar().showMessage(self.tr("Open an SDF file to start"))
+        self.statusBar().showMessage(self.tr("Open a surface file to start"))
 
     def load_file(self, path: str) -> None:
         """Load ``path`` in the background and show it when done."""
@@ -145,7 +148,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         """Remember the window and view settings."""
         self._settings.geometry = self.saveGeometry()
-        self._settings.view = self._current_mode()
+        self._settings.view = self._view_preference
         self._settings.colormap = self._colormap_combo.currentText()
         self._settings.reverse = self._reverse_action.isChecked()
         self._settings.render_mode = self._render_mode.value
@@ -300,7 +303,7 @@ class MainWindow(QMainWindow):
         action = self._action(text, icon, shortcut)
         action.setCheckable(True)
         group.addAction(action)
-        action.triggered.connect(lambda: self._set_view_mode(mode))
+        action.triggered.connect(lambda: self._choose_view(mode))
         return action
 
     def _action_button(self, action: QAction, parent: QWidget) -> QPushButton:
@@ -428,6 +431,16 @@ class MainWindow(QMainWindow):
         except ValueError:
             return RenderMode.SURFACE
 
+    @property
+    def _is_cloud(self) -> bool:
+        """Whether a point cloud is shown, which has no 2D or profile view."""
+        return isinstance(self._model, PointCloudModel)
+
+    def _choose_view(self, mode: str) -> None:
+        """Show the view the user chose and prefer it for the next file."""
+        self._view_preference = mode
+        self._set_view_mode(mode)
+
     def _set_view_mode(self, mode: str) -> None:
         widgets: dict[str, QWidget] = {
             _VIEW_2D: self._heatmap_view,
@@ -452,7 +465,7 @@ class MainWindow(QMainWindow):
             self._pan_action.setChecked(True)
             self._set_tool(Tool.PAN)
         self._z_bar.setEnabled(is_3d)
-        self._render_menu.setEnabled(is_3d)
+        self._render_menu.setEnabled(is_3d and not self._is_cloud)
         self.statusBar().clearMessage()
 
     def _apply_colormap(self) -> None:
@@ -466,7 +479,7 @@ class MainWindow(QMainWindow):
             self._z_bar.set_factor(self._model.auto_z_factor())
 
     def _update_actions(self) -> None:
-        loaded = self._sdf is not None
+        loaded = self._file is not None
         idle = not self._loader.busy
         self._open_action.setEnabled(idle)
         for action in (
@@ -480,14 +493,20 @@ class MainWindow(QMainWindow):
         self._export_action.setEnabled(loaded)
         self._copy_metadata_action.setEnabled(loaded)
         self._z_bar.set_auto_available(loaded)
-        self._save_as_action.setEnabled(loaded)
+        self._save_as_action.setEnabled(isinstance(self._file, sdfio.SdfFile))
+        for action in (self._view_2d_action, self._view_profile_action):
+            action.setEnabled(not self._is_cloud)
 
     def _update_title(self, path: str | None = None) -> None:
         # Qt appends the application display name to every window title.
         self.setWindowTitle(Path(path).name if path else "")
 
-    def _summary(self, model: SurfaceModel, mesh: SurfaceMesh) -> str:
+    def _summary(self, model: Model3D, mesh: SurfaceMesh) -> str:
         (x, y), unit = format_values([model.size_x, model.size_y])
+        if isinstance(model, PointCloudModel):
+            return self.tr("size = {x} \u00d7 {y} {unit}, {count} points").format(
+                x=x, y=y, unit=unit, count=model.num_points
+            )
         if mesh.step > 1:
             return self.tr("size = {x} \u00d7 {y} {unit}, 3D view downsampled by {step}").format(
                 x=x, y=y, unit=unit, step=mesh.step
@@ -497,17 +516,19 @@ class MainWindow(QMainWindow):
     def _open_dialog(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
-            self.tr("Open SDF file"),
+            self.tr("Open surface file"),
             self._settings.dialog_directory(),
-            self.tr("Surface data file (*.sdf);;All files (*)"),
+            self.tr(
+                "Surface files (*.sdf *.x3p);;SDF files (*.sdf);;x3p files (*.x3p);;All files (*)"
+            ),
         )
         if path:
             self._settings.remember_directory(path)
             self.load_file(path)
 
     def _save_as(self) -> None:
-        if self._sdf is not None:
-            self._exporter.save_as(self._sdf, self._path)
+        if isinstance(self._file, sdfio.SdfFile):
+            self._exporter.save_as(self._file, self._path)
 
     def _capture(self) -> QImage | None:
         view_image = self._current().grab_image()
@@ -526,30 +547,36 @@ class MainWindow(QMainWindow):
         self._exporter.copy_screenshot(self._capture())
 
     def _export_metadata(self) -> None:
-        if self._sdf is not None:
-            self._exporter.export_metadata(self._sdf, self._path)
+        if self._file is not None:
+            self._exporter.export_metadata(self._file, self._path)
 
     def _copy_metadata(self) -> None:
-        if self._sdf is not None:
-            self._exporter.copy_metadata(self._sdf)
+        if self._file is not None:
+            self._exporter.copy_metadata(self._file)
 
     def _show_about(self) -> None:
         AboutDialog(self).exec()
 
     def _on_loaded(
-        self, path: str, sdf: sdfio.SdfFile, model: SurfaceModel, mesh: SurfaceMesh
+        self,
+        path: str,
+        file: SurfaceFile,
+        model: SurfaceModel | PointCloudModel,
+        mesh: SurfaceMesh,
     ) -> None:
         QApplication.restoreOverrideCursor()
-        self._sdf = sdf
+        self._file = file
         self._model = model
         self._path = path
         self._surface_view.set_surface(model, mesh)
-        self._heatmap_view.set_model(model)
-        self._profile_view.set_model(model)
+        grid = model if isinstance(model, SurfaceModel) else None
+        self._heatmap_view.set_model(grid)
+        self._profile_view.set_model(grid)
         self._colorbar.set_range(model.value_range, model.invalid_count > 0)
-        self._info_panel.set_sdf(sdf)
+        self._info_panel.set_file(file)
         self._stats_label.setText(self._summary(model, mesh))
         self._z_bar.set_factor(1.0)
+        self._set_view_mode(self._view_preference if grid is not None else _VIEW_3D)
         self._update_title(path)
         self._update_actions()
         self.statusBar().showMessage(self.tr("Loaded {name}").format(name=Path(path).name), 2000)

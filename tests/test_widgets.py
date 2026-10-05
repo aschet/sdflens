@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import sdfio
+import x3pio
 from PySide6.QtCore import QDir, QEventLoop, QPoint, QPointF, QSize, QStandardPaths, Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QIcon, QImage, QKeySequence, QPalette
 from PySide6.QtSvgWidgets import QSvgWidget
@@ -23,7 +24,7 @@ from PySide6.QtWidgets import (
     QToolBar,
 )
 
-from helpers import COLS, ROWS, make_ramp, make_sdf
+from helpers import COLS, ROWS, make_cloud, make_ramp, make_sdf, make_x3p
 from sdflens import app as app_module
 from sdflens.aboutdialog import AboutDialog
 from sdflens.camera import Tool
@@ -370,6 +371,74 @@ def test_toolbar_tooltips_name_the_action_and_its_shortcut() -> None:
                 assert action.toolTip().endswith(f"({shortcut})"), action.text()
     assert window._open_action.toolTip().startswith("Open (")
     assert window._screenshot_action.toolTip().startswith("Save screenshot (")
+    window.close()
+
+
+def test_x3p_surface_shows_its_metadata_and_vendor_extensions(tmp_path: Path) -> None:
+    path = tmp_path / "surface.x3p"
+    make_x3p().save(path)
+    window = MainWindow()
+    _load(window, path)
+    panel = window._info_panel
+    names = [
+        item.text()
+        for item in (panel.table.item(row, 0) for row in range(panel.table.rowCount()))
+        if item is not None
+    ]
+
+    assert "Revision" in names
+    assert "MatrixDimension.SizeX" in names
+    assert "Creator" in names
+    assert not panel.extensions.isHidden()
+    assert panel.trailer.isHidden()
+    assert [panel.extensions.item(i).text() for i in range(panel.extensions.count())] == [
+        "http://www.vendor.com/mypath/a.xml (4 bytes)",
+        "http://www.vendor.com/image.png (1500 bytes)",
+    ]
+    assert window._view_2d_action.isEnabled()
+    assert window._view_profile_action.isEnabled()
+    assert not window._save_as_action.isEnabled()  # only SDF files can be saved
+    assert window._export_action.isEnabled()
+    window.close()
+
+
+def test_point_cloud_has_no_2d_or_profile_view(ramp_path: Path, tmp_path: Path) -> None:
+    cloud_path = tmp_path / "cloud.x3p"
+    x3pio.write_points(cloud_path, make_cloud())
+    window = MainWindow()
+    window._choose_view("2d")
+    _load(window, ramp_path)
+    assert window._current_mode() == "2d"
+
+    _load(window, cloud_path)
+    assert window._current_mode() == "3d"
+    assert not window._view_2d_action.isEnabled()
+    assert not window._view_profile_action.isEnabled()
+    assert not window._render_menu.isEnabled()
+    assert "200 points" in window._stats_label.text()
+    assert window._view_preference == "2d"  # the point cloud does not change the preference
+
+    _load(window, ramp_path)  # a grid again: the preferred view and the menu come back
+    assert window._current_mode() == "2d"
+    assert window._view_2d_action.isEnabled()
+    window._choose_view("3d")
+    assert window._render_menu.isEnabled()
+    assert window._save_as_action.isEnabled()
+    window.close()
+
+
+def test_open_dialog_offers_x3p_files(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[str] = []
+
+    def fake(parent: object, title: str, directory: str, name_filter: str) -> tuple[str, str]:
+        seen.append(name_filter)
+        return "", ""
+
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", fake)
+    window = MainWindow()
+    window._open_dialog()
+
+    assert "*.sdf *.x3p" in seen[0]
     window.close()
 
 

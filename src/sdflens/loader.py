@@ -2,15 +2,14 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Background loading of SDF files: parsing and mesh building run off the GUI thread."""
+"""Background loading of surface files: parsing and mesh building run off the GUI thread."""
 
 from __future__ import annotations
 
 from PySide6.QtCore import QCoreApplication, QObject, QRunnable, QThreadPool, Signal
-from sdfio import SdfError, read
 
-from .mesh import SurfaceMesh
-from .surface import NoMeasuredPointsError, SurfaceModel
+from .surface import NoMeasuredPointsError
+from .surfacefile import FILE_ERRORS, build_mesh, build_model, read_surface_file
 
 __all__ = ["Loader"]
 
@@ -31,22 +30,22 @@ class _Task(QRunnable):
     def run(self) -> None:
         # Deliberately narrow: only expected failures get a message, anything else is a bug.
         try:
-            sdf = read(self._path)
-            model = SurfaceModel.from_sdf(sdf)
-            mesh = SurfaceMesh.from_model(model)
+            file = read_surface_file(self._path)
+            model = build_model(file)
+            mesh = build_mesh(model)
         except NoMeasuredPointsError:
             message = QCoreApplication.translate("Loader", "The file contains no measured points")
             self._signals.failed.emit(self._path, message)
-        except (SdfError, OSError) as error:
+        except FILE_ERRORS as error:
             self._signals.failed.emit(self._path, str(error))
         else:
-            self._signals.loaded.emit(self._path, sdf, model, mesh)
+            self._signals.loaded.emit(self._path, file, model, mesh)
 
 
 class Loader(QObject):
-    """Loads one SDF file at a time on a worker thread.
+    """Loads one SDF or x3p file at a time on a worker thread.
 
-    ``loaded(path, sdf, model, mesh)`` and ``failed(path, message)`` are delivered on the thread
+    ``loaded(path, file, model, mesh)`` and ``failed(path, message)`` are delivered on the thread
     that owns the loader, so their slots may touch widgets and GL resources.
     """
 
@@ -76,9 +75,9 @@ class Loader(QObject):
         self._pool.start(_Task(path, self._signals))
         return True
 
-    def _on_loaded(self, path: str, sdf: object, model: object, mesh: object) -> None:
+    def _on_loaded(self, path: str, file: object, model: object, mesh: object) -> None:
         self._busy = False
-        self.loaded.emit(path, sdf, model, mesh)
+        self.loaded.emit(path, file, model, mesh)
 
     def _on_failed(self, path: str, message: str) -> None:
         self._busy = False

@@ -18,6 +18,7 @@ from .convert import convert_for_export
 from .exportdialog import SaveAsDialog
 from .infopanel import format_metadata
 from .settings import Settings
+from .surfacefile import SurfaceFile
 
 __all__ = ["Exporter", "compose_screenshot"]
 
@@ -116,8 +117,8 @@ class Exporter(QObject):
             QGuiApplication.clipboard().setImage(image)
             self.message.emit(self.tr("Screenshot copied to clipboard"), 3000)
 
-    def export_metadata(self, sdf: sdfio.SdfFile, source: str | None) -> None:
-        """Save the header fields and trailer of ``sdf`` as a text file."""
+    def export_metadata(self, file: SurfaceFile, source: str | None) -> None:
+        """Save the header fields and trailer or vendor extensions of ``file`` as a text file."""
         path = self._ask_save_path(
             self.tr("Export information"),
             f"{Path(source).stem}.txt" if source else "information.txt",
@@ -126,15 +127,15 @@ class Exporter(QObject):
         if not path:
             return
         try:
-            Path(path).write_text(format_metadata(sdf), encoding="utf-8")
+            Path(path).write_text(format_metadata(file), encoding="utf-8")
         except OSError as error:
             QMessageBox.critical(
                 self._window, self.tr("Cannot export information"), f"{path}\n\n{error}"
             )
 
-    def copy_metadata(self, sdf: sdfio.SdfFile) -> None:
-        """Put the header fields and trailer of ``sdf`` on the clipboard."""
-        QGuiApplication.clipboard().setText(format_metadata(sdf))
+    def copy_metadata(self, file: SurfaceFile) -> None:
+        """Put the header fields and trailer or vendor extensions of ``file`` on the clipboard."""
+        QGuiApplication.clipboard().setText(format_metadata(file))
         self.message.emit(self.tr("Information copied to clipboard"), 3000)
 
     def _ask_save_path(self, title: str, name: str, name_filter: str) -> str:

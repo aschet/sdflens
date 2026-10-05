@@ -36,7 +36,7 @@ from shiboken6 import VoidPtr
 
 from .camera import Camera, Tool
 from .mesh import SurfaceMesh
-from .surface import SurfaceModel
+from .surface import Model3D
 from .zscale import clamp_z_factor
 
 __all__ = ["RenderMode", "SurfaceView"]
@@ -75,7 +75,7 @@ class RenderMode(StrEnum):
 
 def _primitives(mesh: SurfaceMesh, mode: RenderMode) -> tuple[int, NDArray[np.uint32]]:
     """Return the GL primitive type and the vertex indices that draw ``mesh`` in ``mode``."""
-    if mode is RenderMode.POINTS:
+    if mode is RenderMode.POINTS or mesh.is_cloud:
         return _GL_POINTS, np.flatnonzero(mesh.valid).astype(np.uint32)
     if mode is RenderMode.SURFACE and mesh.triangles.size:
         return _GL_TRIANGLES, mesh.triangles
@@ -129,7 +129,7 @@ class SurfaceView(QOpenGLWidget):
         super().__init__(parent)
         self.setMouseTracking(True)
         self._camera = Camera()
-        self._model: SurfaceModel | None = None
+        self._model: Model3D | None = None
         self._mesh: SurfaceMesh | None = None
         self._z_factor = 1.0
         self._tool = Tool.ROTATE
@@ -149,7 +149,7 @@ class SurfaceView(QOpenGLWidget):
         self._index_buffer: QOpenGLBuffer | None = None
         self._texture: QOpenGLTexture | None = None
 
-    def set_surface(self, model: SurfaceModel, mesh: SurfaceMesh) -> None:
+    def set_surface(self, model: Model3D, mesh: SurfaceMesh) -> None:
         """Show ``mesh`` of ``model`` and reset the camera."""
         self._model = model
         self._mesh = mesh
@@ -365,7 +365,7 @@ class SurfaceView(QOpenGLWidget):
         self._texture = texture
 
     def _draw_geometry(
-        self, gl: QOpenGLFunctions_3_3_Core, program: QOpenGLShaderProgram, model: SurfaceModel
+        self, gl: QOpenGLFunctions_3_3_Core, program: QOpenGLShaderProgram, model: Model3D
     ) -> None:
         vao = self._vao
         texture = self._texture
