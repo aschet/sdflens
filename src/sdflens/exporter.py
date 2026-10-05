@@ -17,10 +17,10 @@ from PySide6.QtGui import QBrush, QGuiApplication, QImage, QPainter
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QWidget
 
 from .convert import convert_file
-from .exportdialog import SaveAsDialog, x3p_code
+from .exportdialog import SaveOptionsDialog
 from .infopanel import format_metadata
 from .settings import Settings
-from .surfacefile import FILE_ERRORS, SurfaceFile
+from .surfacefile import FILE_ERRORS, SurfaceFile, is_grid
 
 __all__ = ["Exporter", "compose_screenshot"]
 
@@ -57,25 +57,60 @@ class Exporter(QObject):
         self._settings = settings
 
     def save_as(self, file: SurfaceFile, source: str | None) -> None:
-        """Save ``file`` in a format, version and data type chosen by the user."""
-        last = (self._settings.save_version, self._settings.save_data_type)
-        dialog = SaveAsDialog(file, self._window, last)
-        if dialog.exec() != SaveAsDialog.DialogCode.Accepted:
-            return
+        """Ask for a file name and format, then for the options of the format, and save ``file``.
+
+        The format is chosen by the file type of the dialog, which is SDF unless the data is a
+        point cloud, or by the extension that is typed. Only a grid of heights can be saved as
+        SDF.
+        """
+        sdf_filter = self.tr("Surface data file (*.sdf)")
+        x3p_filter = self.tr("x3p file (*.x3p)")
+        can_sdf = is_grid(file)
+        default_filter = sdf_filter if can_sdf else x3p_filter
         stem = Path(source).stem if source else "surface"
-        if isinstance(dialog.dialect, x3pio.X3pDialect):
-            suffix, name_filter = ".x3p", self.tr("x3p file (*.x3p);;All files (*)")
-            name = f"{stem}-{x3p_code(dialog.dialect)}"
-        else:
-            suffix, name_filter = ".sdf", self.tr("Surface data file (*.sdf);;All files (*)")
-            name = f"{stem}-{dialog.dialect}"
-        path = self._ask_save_path(self.tr("Save as"), name + suffix, name_filter)
+        suffix = ".sdf" if default_filter == sdf_filter else ".x3p"
+        path, chosen = self._ask_save_as(
+            stem + suffix,
+            [(sdf_filter, ".sdf"), (x3p_filter, ".x3p")] if can_sdf else [(x3p_filter, ".x3p")],
+            default_filter,
+        )
         if not path:
             return
-        if not Path(path).suffix:
-            path += suffix
-        self._settings.save_version = dialog.version
-        self._settings.save_data_type = dialog.data_type_name
+        self._settings.remember_directory(path)
+        path = QDir.toNativeSeparators(path)
+        typed = Path(path).suffix.lower()
+        is_x3p = typed == ".x3p" or (typed != ".sdf" and chosen == x3p_filter)
+        if not is_x3p and not can_sdf:
+            QMessageBox.critical(
+                self._window,
+                self.tr("Cannot save file"),
+                self.tr("Only a grid of heights can be saved as an SDF file, not this data."),
+            )
+            return
+        if not typed:
+            path += ".x3p" if is_x3p else ".sdf"
+
+        settings = self._settings
+        last = (
+            (settings.save_x3p_version, settings.save_x3p_encoding, settings.save_x3p_data_type)
+            if is_x3p
+            else (
+                settings.save_sdf_version,
+                settings.save_sdf_encoding,
+                settings.save_sdf_data_type,
+            )
+        )
+        dialog = SaveOptionsDialog(file, is_x3p, self._window, last)
+        if dialog.exec() != SaveOptionsDialog.DialogCode.Accepted:
+            return
+        if is_x3p:
+            settings.save_x3p_version = dialog.version_name
+            settings.save_x3p_encoding = dialog.encoding_name
+            settings.save_x3p_data_type = dialog.data_type_name
+        else:
+            settings.save_sdf_version = dialog.version_name
+            settings.save_sdf_encoding = dialog.encoding_name
+            settings.save_sdf_data_type = dialog.data_type_name
         self.write_export(file, path, dialog.dialect, dialog.data_type, dialog.file_format)
 
     def write_export(
@@ -174,6 +209,27 @@ class Exporter(QObject):
             )
         else:
             self.message.emit(self.tr("Saved {path}").format(path=path), 5000)
+
+    def _ask_save_as(
+        self, name: str, filters: list[tuple[str, str]], default_filter: str
+    ) -> tuple[str, str]:
+        """Ask for a file to save to, with a file type for each ``(filter, suffix)``.
+
+        Qt's own dialog is used, because it changes the extension of the name when another file
+        type is chosen, so that the name and the type do not contradict each other. Returns the
+        path and the chosen filter, or empty strings if the dialog is cancelled.
+        """
+        dialog = QFileDialog(self._window, self.tr("Save as"), self._settings.dialog_directory())
+        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        dialog.setFileMode(QFileDialog.FileMode.AnyFile)
+        # The native dialogs of some platforms keep the old extension when the type is changed.
+        dialog.setOption(QFileDialog.Option.DontUseNativeDialog)
+        dialog.setNameFilters([text for text, _suffix in filters])
+        dialog.selectNameFilter(default_filter)
+        dialog.selectFile(name)
+        if dialog.exec() != QFileDialog.DialogCode.Accepted or not dialog.selectedFiles():
+            return "", ""
+        return dialog.selectedFiles()[0], dialog.selectedNameFilter()
 
     def _ask_save_path(self, title: str, name: str, name_filter: str) -> str:
         """Ask for a file to save to, or return an empty string; remembers the folder."""

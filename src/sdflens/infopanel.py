@@ -7,11 +7,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import cast
 
 import x3pio
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QAbstractScrollArea,
     QHeaderView,
     QLabel,
     QListWidget,
@@ -34,8 +36,8 @@ __all__ = [
     "trailer_text",
 ]
 
-#: Width that fits the longest values, such as the revision of an x3p file.
-_MIN_WIDTH = 340
+#: Width in characters that fits the longest values, such as the revision of an x3p file.
+_MIN_COLUMNS = 48
 
 #: A table of at most this many rows is shown completely; a longer one scrolls.
 _MAX_FIXED_ROWS = 12
@@ -167,9 +169,10 @@ class InfoPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         """Create an empty panel."""
         super().__init__(parent)
-        self.setMinimumWidth(_MIN_WIDTH)
+        self.setMinimumWidth(_MIN_COLUMNS * self.fontMetrics().averageCharWidth())
         self.table = QTableWidget(0, 2, self)
         self.table.verticalHeader().hide()
+        self.table.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -217,19 +220,15 @@ class InfoPanel(QWidget):
     def _fit_table(self, rows: int) -> None:
         """Show a short table completely, and let a long one scroll in the space it gets."""
         fixed = rows <= _MAX_FIXED_ROWS
-        policy = (
+        scrollbar = (
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff if fixed else Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
-        self.table.setVerticalScrollBarPolicy(policy)
-        if fixed:
-            height = self.table.verticalHeader().length() + 2 * self.table.frameWidth()
-            self.table.setFixedHeight(height)
-            self.table.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        else:
-            self.table.setMinimumHeight(0)
-            self.table.setMaximumHeight(16777215)  # QWIDGETSIZE_MAX
-            self.table.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
-            self.layout().setStretchFactor(self.table, 2)  # type: ignore[union-attr]
+        vertical = QSizePolicy.Policy.Fixed if fixed else QSizePolicy.Policy.Expanding
+        self.table.setVerticalScrollBarPolicy(scrollbar)
+        self.table.setSizePolicy(QSizePolicy.Policy.Preferred, vertical)
+        self.table.updateGeometry()
+        stretch = 0 if fixed else 2
+        cast(QVBoxLayout, self.layout()).setStretchFactor(self.table, stretch)
 
     def _show_extensions(self, extensions: bool) -> None:
         self._trailer_label.setVisible(not extensions)

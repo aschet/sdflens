@@ -18,9 +18,13 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QMenu,
     QMessageBox,
+    QPushButton,
+    QSizePolicy,
     QToolBar,
 )
 
@@ -30,7 +34,8 @@ from sdflens.aboutdialog import AboutDialog
 from sdflens.camera import Tool
 from sdflens.colorbar import ColorBar
 from sdflens.colormap import build_lut
-from sdflens.exportdialog import SaveAsDialog
+from sdflens.exportdialog import SaveOptionsDialog
+from sdflens.exporter import Exporter
 from sdflens.glwidget import RenderMode, SurfaceView, _primitives
 from sdflens.heatmap import HeatmapView, _block_size, _reduce
 from sdflens.icons import load_icon
@@ -530,7 +535,10 @@ def test_information_table_has_no_header_and_fits_its_rows(ramp_path: Path) -> N
 
     assert table.horizontalHeader().isHidden()
     assert table.selectionMode() == QAbstractItemView.SelectionMode.NoSelection
-    assert table.maximumHeight() == table.verticalHeader().length() + 2 * table.frameWidth()
+    content = table.verticalHeader().length() + 2 * table.frameWidth()
+    assert table.sizeHint().height() >= content  # a short table is shown completely
+    assert table.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Fixed
+    assert table.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
 
 
 def test_file_dialogs_start_in_documents_and_remember_the_last_folder(
@@ -754,111 +762,126 @@ def _enabled(combo: QComboBox) -> list[str]:
     ]
 
 
-def test_save_as_dialog_presets_and_disables_unsupported_data_types(ramp_path: Path) -> None:
-    dialog = SaveAsDialog(sdfio.read(ramp_path))
+def test_options_dialog_presets_from_the_sdf_file_and_disables_unsupported_data_types(
+    ramp_path: Path,
+) -> None:
+    dialog = SaveOptionsDialog(sdfio.read(ramp_path), is_x3p=False)
 
-    assert dialog.version == "bISO-2.0"
+    assert dialog.version_name == "ISO-2.0"
+    assert dialog.encoding_name == "Binary"
     assert dialog.file_format is sdfio.FileFormat.BINARY
     assert dialog.dialect is sdfio.SdfDialect.ISO_2_0
     assert dialog.data_type is sdfio.DataType.BINARY64
     assert len(_enabled(dialog._data_type)) == 5
-    dialog._version.setCurrentText("aISO-1.0")
+    dialog._version.setCurrentText("ISO-1.0")
     assert _enabled(dialog._data_type) == ["int16", "int32", "binary64"]
     dialog._data_type.setCurrentText("int8")
-    dialog._version.setCurrentText("aBCR-1.0")
+    dialog._version.setCurrentText("BCR-1.0")
     assert dialog.data_type.name == "INT8"
-    dialog._version.setCurrentText("bISO-1.0")
+    dialog._version.setCurrentText("ISO-1.0")
     assert dialog.data_type.name == "INT16"  # INT8 isn't defined for ISO-1.0
 
 
-def test_save_as_dialog_offers_unsigned_data_types_for_bcr_only(ramp_path: Path) -> None:
-    dialog = SaveAsDialog(sdfio.read(ramp_path))
+def test_options_dialog_offers_unsigned_data_types_for_bcr_only(ramp_path: Path) -> None:
+    dialog = SaveOptionsDialog(sdfio.read(ramp_path), is_x3p=False)
     unsigned = ["uint8", "uint16", "uint32"]
 
     assert not set(unsigned) & set(_enabled(dialog._data_type))
-    dialog._version.setCurrentText("bBCR-1.0")
+    dialog._version.setCurrentText("BCR-1.0")
     assert _enabled(dialog._data_type)[:3] == unsigned
     dialog._data_type.setCurrentText("uint16")
     assert dialog.data_type is sdfio.DataType.UINT16
-    dialog._version.setCurrentText("bISO-2.0")
+    dialog._version.setCurrentText("ISO-2.0")
     assert dialog.data_type_name not in unsigned
 
 
-def test_save_as_dialog_uses_the_last_options_when_valid(ramp_path: Path) -> None:
-    dialog = SaveAsDialog(sdfio.read(ramp_path), last=("aBCR-1.0", "int16"))
+def test_options_dialog_uses_the_last_options_when_valid(ramp_path: Path) -> None:
+    dialog = SaveOptionsDialog(
+        sdfio.read(ramp_path), is_x3p=False, last=("BCR-1.0", "ASCII", "int16")
+    )
 
-    assert dialog.version == "aBCR-1.0"
-    assert dialog.file_format is sdfio.FileFormat.ASCII
     assert dialog.dialect is sdfio.SdfDialect.BCR_1_0
+    assert dialog.file_format is sdfio.FileFormat.ASCII
     assert dialog.data_type_name == "int16"
 
 
-def test_save_as_dialog_ignores_last_options_that_are_invalid(tmp_path: Path) -> None:
-    path = tmp_path / "wide.sdf"
-    sdfio.write(path, np.zeros((2, 70000)), x_scale=1e-6, y_scale=1e-6)
-    dialog = SaveAsDialog(sdfio.read(path), last=("bISO-1.0", "nonsense"))
+def test_options_dialog_ignores_last_options_it_does_not_know(ramp_path: Path) -> None:
+    dialog = SaveOptionsDialog(
+        sdfio.read(ramp_path), is_x3p=False, last=("nonsense", "nonsense", "nonsense")
+    )
 
-    assert dialog.version == "bISO-2.0"
-
-
-def _tooltips(combo: QComboBox) -> dict[str, str]:
-    return {
-        combo.itemText(i): combo.itemData(i, Qt.ItemDataRole.ToolTipRole) or ""
-        for i in range(combo.count())
-    }
+    assert dialog.version_name == "ISO-2.0"
+    assert dialog.encoding_name == "Binary"
+    assert dialog.data_type_name == "binary64"
 
 
-def test_save_as_dialog_keeps_every_version_selectable_for_large_grids(tmp_path: Path) -> None:
-    path = tmp_path / "wide.sdf"
-    sdfio.write(path, np.zeros((2, 70000)), x_scale=1e-6, y_scale=1e-6)
-    dialog = SaveAsDialog(sdfio.read(path))
-    tooltips = _tooltips(dialog._version)
-
-    assert len(_enabled(dialog._version)) == dialog._version.count()
-    # binary 1.0 versions store at most 65535 points per row
-    assert tooltips["bISO-1.0"] != ""
-    assert tooltips["bISO-2.0"] == ""
+def _ok(dialog: SaveOptionsDialog) -> QPushButton:
+    button = dialog._buttons.button(QDialogButtonBox.StandardButton.Ok)
+    assert button is not None
+    return button
 
 
-def test_save_as_dialog_keeps_every_version_selectable_for_untagged_trailers(
+def test_options_dialog_cannot_be_accepted_for_a_large_grid_in_a_small_version(
     tmp_path: Path,
 ) -> None:
+    path = tmp_path / "wide.sdf"
+    sdfio.write(path, np.zeros((2, 70000)), x_scale=1e-6, y_scale=1e-6)
+    dialog = SaveOptionsDialog(sdfio.read(path), is_x3p=False)
+
+    assert _ok(dialog).isEnabled()
+    dialog._version.setCurrentText("ISO-1.0")
+    # binary 1.0 versions store at most 65535 points per row
+    assert not _ok(dialog).isEnabled()
+    assert "65535" in dialog._note.text()
+    dialog._encoding.setCurrentText("ASCII")
+    assert _ok(dialog).isEnabled()
+    assert dialog._note.text() == ""
+
+
+def test_options_dialog_cannot_be_accepted_for_an_untagged_trailer(tmp_path: Path) -> None:
     path = tmp_path / "bcr.sdf"
     metadata = sdfio.SdfMetadata(dialect=sdfio.SdfDialect.BCR_1_0)
     sdfio.write(path, make_ramp(), x_scale=1e-6, y_scale=1e-6, metadata=metadata, trailer="free")
-    dialog = SaveAsDialog(sdfio.read(path))
-    tooltips = _tooltips(dialog._version)
+    dialog = SaveOptionsDialog(sdfio.read(path), is_x3p=False)
 
-    assert len(_enabled(dialog._version)) == dialog._version.count()
-    assert tooltips["bISO-2.0"] != ""
-    assert tooltips["bBCR-1.0"] == ""
+    assert dialog.version_name == "BCR-1.0"
+    assert _ok(dialog).isEnabled()
+    dialog._version.setCurrentText("ISO-2.0")
+    assert not _ok(dialog).isEnabled()
+    assert "tagged" in dialog._note.text()
 
 
-def test_save_as_dialog_selects_the_first_enabled_data_type_when_the_version_changes(
+def test_options_dialog_selects_the_first_enabled_data_type_when_the_version_changes(
     ramp_path: Path,
 ) -> None:
-    dialog = SaveAsDialog(sdfio.read(ramp_path))
+    dialog = SaveOptionsDialog(sdfio.read(ramp_path), is_x3p=False)
     dialog._data_type.setCurrentText("int8")
-    dialog._version.setCurrentText("aISO-1.0")
+    dialog._version.setCurrentText("ISO-1.0")
 
     assert dialog.data_type_name == "int16"
     assert _enabled(dialog._data_type) == ["int16", "int32", "binary64"]
 
 
-def test_save_as_remembers_the_chosen_options(
+def test_save_as_remembers_the_chosen_options_per_format(
     ramp_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     window = MainWindow()
     _load(window, ramp_path)
+    monkeypatch.setattr(
+        SaveOptionsDialog, "exec", lambda self: SaveOptionsDialog.DialogCode.Accepted
+    )
+    monkeypatch.setattr(SaveOptionsDialog, "version_name", property(lambda self: "BCR-1.0"))
+    monkeypatch.setattr(SaveOptionsDialog, "encoding_name", property(lambda self: "ASCII"))
+    monkeypatch.setattr(SaveOptionsDialog, "data_type_name", property(lambda self: "int16"))
     target = tmp_path / "again.sdf"
-    monkeypatch.setattr(SaveAsDialog, "exec", lambda self: SaveAsDialog.DialogCode.Accepted)
-    monkeypatch.setattr(SaveAsDialog, "version", property(lambda self: "aBCR-1.0"))
-    monkeypatch.setattr(SaveAsDialog, "data_type_name", property(lambda self: "int16"))
     monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args: (str(target), ""))
     window._save_as()
 
-    assert window._settings.save_version == "aBCR-1.0"
-    assert window._settings.save_data_type == "int16"
+    settings = window._settings
+    assert (settings.save_sdf_version, settings.save_sdf_encoding) == ("BCR-1.0", "ASCII")
+    assert settings.save_sdf_data_type == "int16"
+    assert settings.save_x3p_version == ""  # the other format keeps its own choice
+    window.close()
 
 
 def test_save_as_writes_the_chosen_version_format_and_type(ramp_path: Path, tmp_path: Path) -> None:
@@ -899,58 +922,192 @@ def test_save_as_reports_failures(
     assert QApplication.overrideCursor() is None
 
 
-def test_save_as_dialog_offers_x3p_targets_and_their_data_types(ramp_path: Path) -> None:
-    dialog = SaveAsDialog(sdfio.read(ramp_path))
+def test_options_dialog_for_x3p_offers_its_versions_encodings_and_data_types(
+    ramp_path: Path,
+) -> None:
+    dialog = SaveOptionsDialog(sdfio.read(ramp_path), is_x3p=True)
 
-    assert not dialog.is_x3p
-    assert "x3p-DAM1 (binary)" in [
-        dialog._version.itemText(i) for i in range(dialog._version.count())
-    ]
-    dialog._version.setCurrentText("x3p-2000 (xml)")
-    assert dialog.is_x3p
-    assert dialog.dialect is x3pio.X3pDialect.ISO5436_2000
-    assert dialog.file_format is x3pio.DataStorage.XML
+    assert dialog.windowTitle() == "Save as x3p"
+    assert _enabled(dialog._version) == ["ISO25178-72:2017/DAM1", "ISO5436 - 2000"]
+    assert _enabled(dialog._encoding) == ["Binary", "XML"]
     assert _enabled(dialog._data_type) == ["int16", "int32", "float32", "float64"]
-    dialog._data_type.setCurrentText("int32")
-    assert dialog.data_type is x3pio.DataType.INT32
-    dialog._version.setCurrentText("bISO-2.0")
-    assert not dialog.is_x3p
-    assert dialog.data_type_name == "int32"  # the chosen name is kept where it exists
-    assert dialog.data_type is sdfio.DataType.INT32
+    assert dialog.dialect is x3pio.X3pDialect.ISO25178_72_2017_DAM1  # the newest
+    assert dialog.file_format is x3pio.DataStorage.BINARY
+    assert dialog.data_type is x3pio.DataType.FLOAT64
+    assert "comment" in dialog._note.text()  # what the conversion does to the trailer
 
 
-def test_save_as_dialog_of_an_x3p_file_starts_with_its_own_format(tmp_path: Path) -> None:
+def test_options_dialog_of_an_x3p_file_starts_with_its_own_options() -> None:
     x3p = make_x3p().with_z_type(x3pio.DataType.INT16)
     x3p.storage = x3pio.DataStorage.XML
-    dialog = SaveAsDialog(x3p)
+    dialog = SaveOptionsDialog(x3p, is_x3p=True)
 
-    assert dialog.version == "x3p-DAM1 (xml)"
+    assert dialog.file_format is x3pio.DataStorage.XML
     assert dialog.data_type is x3pio.DataType.INT16
-    dialog._version.setCurrentText("bISO-2.0")  # an x3p grid can be saved as SDF
-    assert dialog._version.model().flags(dialog._version.model().index(0, 0)) & (
-        Qt.ItemFlag.ItemIsEnabled
+    assert dialog._note.text() == ""
+
+
+def test_options_dialog_says_what_an_sdf_file_of_an_x3p_file_loses() -> None:
+    layers = np.stack([make_ramp(), make_ramp()])
+    dialog = SaveOptionsDialog(
+        x3pio.X3pFile.from_array(layers, x_scale=1e-6, y_scale=1e-6), is_x3p=False
     )
 
-
-def test_save_as_dialog_disables_sdf_for_a_point_cloud() -> None:
-    dialog = SaveAsDialog(x3pio.X3pFile.from_points(make_cloud()))
-    enabled = _enabled(dialog._version)
-
-    assert enabled == [
-        "x3p-DAM1 (binary)",
-        "x3p-DAM1 (xml)",
-        "x3p-2000 (binary)",
-        "x3p-2000 (xml)",
-    ]
-    assert dialog.is_x3p
+    assert dialog.dialect is sdfio.SdfDialect.ISO_2_0
+    assert "vendor extensions" in dialog._note.text()
+    assert "first layer" in dialog._note.text()
+    assert _ok(dialog).isEnabled()
 
 
-def test_save_as_remembers_an_x3p_choice(tmp_path: Path) -> None:
-    sdf = make_sdf(make_ramp())
-    dialog = SaveAsDialog(sdf, last=("x3p-2000 (binary)", "float32"))
+def test_options_dialog_warns_when_the_vendor_extensions_do_not_fit() -> None:
+    dialog = SaveOptionsDialog(make_x3p(), is_x3p=True)  # two IDs
 
-    assert dialog.version == "x3p-2000 (binary)"
+    assert dialog._note.text() == ""
+    dialog._version.setCurrentText("ISO5436 - 2000")
+    assert "vendor extensions" in dialog._note.text()
+    assert _ok(dialog).isEnabled()
+
+
+def test_options_dialog_remembers_an_x3p_choice() -> None:
+    dialog = SaveOptionsDialog(
+        make_sdf(make_ramp()), is_x3p=True, last=("ISO5436 - 2000", "XML", "float32")
+    )
+
+    assert dialog.dialect is x3pio.X3pDialect.ISO5436_2000
+    assert dialog.file_format is x3pio.DataStorage.XML
     assert dialog.data_type is x3pio.DataType.FLOAT32
+
+
+def _fake_file_dialog(
+    monkeypatch: pytest.MonkeyPatch, path: Path, selected: str
+) -> list[tuple[str, list[tuple[str, str]], str]]:
+    seen: list[tuple[str, list[tuple[str, str]], str]] = []
+
+    def fake(
+        self: Exporter, name: str, filters: list[tuple[str, str]], default_filter: str
+    ) -> tuple[str, str]:
+        seen.append((name, filters, default_filter))
+        return str(path), selected
+
+    monkeypatch.setattr(Exporter, "_ask_save_as", fake)
+    return seen
+
+
+def test_save_as_asks_for_the_file_first_with_a_filter_for_each_format(
+    ramp_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    window = MainWindow()
+    _load(window, ramp_path)
+    seen = _fake_file_dialog(monkeypatch, tmp_path / "out", "x3p file (*.x3p)")
+    shown: list[bool] = []
+
+    def exec_options(self: SaveOptionsDialog) -> QDialog.DialogCode:
+        shown.append(self.windowTitle() == "Save as x3p")
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(SaveOptionsDialog, "exec", exec_options)
+    window._save_as()
+
+    name, filters, initial = seen[0]
+    assert name == "ramp.sdf"  # SDF is the default type
+    assert filters == [("Surface data file (*.sdf)", ".sdf"), ("x3p file (*.x3p)", ".x3p")]
+    assert initial == "Surface data file (*.sdf)"
+    assert shown == [True]  # the filter chose x3p, so its options are asked
+    assert (tmp_path / "out.x3p").exists()  # the missing extension is added
+    window.close()
+
+
+def test_save_as_of_an_x3p_file_still_starts_with_the_sdf_type(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "surface.x3p"
+    make_x3p().save(path)
+    window = MainWindow()
+    _load(window, path)
+    seen = _fake_file_dialog(monkeypatch, tmp_path / "out", "")
+    monkeypatch.setattr(SaveOptionsDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
+    window._save_as()
+
+    name, filters, initial = seen[0]
+    assert name == "surface.sdf"
+    assert initial == "Surface data file (*.sdf)"
+    assert [text for text, _suffix in filters] == [
+        "Surface data file (*.sdf)",
+        "x3p file (*.x3p)",
+    ]
+    window.close()
+
+
+def test_changing_the_file_type_in_the_save_dialog_changes_the_extension(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    window = MainWindow()
+    window._settings.last_directory = str(tmp_path)
+    names: list[str] = []
+
+    def drive() -> None:
+        dialog = QApplication.activeModalWidget()
+        assert isinstance(dialog, QFileDialog)
+        combo = dialog.findChild(QComboBox, "fileTypeCombo")
+        assert isinstance(combo, QComboBox)
+        names.append(Path(dialog.selectedFiles()[0]).name)
+        combo.setCurrentIndex(1)  # the file type of x3p, chosen as the user does
+        combo.activated.emit(1)
+        names.append(Path(dialog.selectedFiles()[0]).name)
+        combo.setCurrentIndex(0)
+        combo.activated.emit(0)
+        names.append(Path(dialog.selectedFiles()[0]).name)
+        dialog.reject()
+
+    QTimer.singleShot(200, drive)
+    path, chosen = window._exporter._ask_save_as(
+        "surface.sdf",
+        [("SDF (*.sdf)", ".sdf"), ("x3p (*.x3p)", ".x3p")],
+        "SDF (*.sdf)",
+    )
+
+    assert names == ["surface.sdf", "surface.x3p", "surface.sdf"]
+    assert (path, chosen) == ("", "")  # cancelled
+    window.close()
+
+
+def test_save_as_takes_the_format_from_a_typed_extension(
+    ramp_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    window = MainWindow()
+    _load(window, ramp_path)
+    _fake_file_dialog(monkeypatch, tmp_path / "typed.X3P", "Surface data file (*.sdf)")
+    titles: list[str] = []
+
+    def exec_options(self: SaveOptionsDialog) -> QDialog.DialogCode:
+        titles.append(self.windowTitle())
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(SaveOptionsDialog, "exec", exec_options)
+    window._save_as()
+
+    assert titles == ["Save as x3p"]  # the typed extension wins over the selected filter
+    assert not (tmp_path / "typed.X3P").exists()  # cancelling the options writes nothing
+    window.close()
+
+
+def test_save_as_offers_only_x3p_for_a_point_cloud_and_refuses_an_sdf_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloud_path = tmp_path / "cloud.x3p"
+    x3pio.write_points(cloud_path, make_cloud())
+    messages: list[tuple[object, ...]] = []
+    monkeypatch.setattr(QMessageBox, "critical", lambda *args: messages.append(args))
+    window = MainWindow()
+    _load(window, cloud_path)
+    seen = _fake_file_dialog(monkeypatch, tmp_path / "cloud.sdf", "x3p file (*.x3p)")
+    window._save_as()
+
+    assert seen[0][1] == [("x3p file (*.x3p)", ".x3p")]  # no SDF filter for a point cloud
+    assert seen[0][0] == "cloud.x3p"
+    assert len(messages) == 1  # a typed .sdf name cannot be honoured
+    assert not (tmp_path / "cloud.sdf").exists()
+    window.close()
 
 
 def test_save_as_writes_x3p_from_sdf_and_sdf_from_x3p(ramp_path: Path, tmp_path: Path) -> None:

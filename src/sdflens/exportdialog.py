@@ -2,247 +2,226 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Dialog choosing the format, version and data type of a saved SDF or x3p file."""
+"""Dialog choosing the version, encoding and data type of a saved SDF or x3p file."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import cast
 
 import x3pio
 from PySide6.QtGui import QStandardItemModel
-from PySide6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QFormLayout, QWidget
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QLabel,
+    QLayout,
+    QWidget,
+)
 from sdfio import DataType, FileFormat, SdfDialect, SdfFile
-from sdfio.header import ASCII_PREFIX, BINARY_PREFIX
 
 from .convert import (
     ExportProblem,
     ProblemKind,
     allowed_data_types,
+    extensions_fit,
     format_problem,
-    not_a_grid,
     x3p_data_types,
     x3p_to_sdf,
 )
-from .surfacefile import SurfaceFile
+from .surfacefile import SurfaceFile, is_grid
 
-__all__ = ["SaveAsDialog", "x3p_code"]
+__all__ = ["SaveOptionsDialog"]
 
-_X3P_CODES = {
-    x3pio.X3pDialect.ISO25178_72_2017_DAM1: "DAM1",
-    x3pio.X3pDialect.ISO5436_2000: "2000",
-}
-
-
-def x3p_code(dialect: x3pio.X3pDialect) -> str:
-    """Return the short name of an x3p dialect, ``DAM1`` or ``2000``."""
-    return _X3P_CODES[dialect]
+_X3P_DIALECTS = (x3pio.X3pDialect.ISO25178_72_2017_DAM1, x3pio.X3pDialect.ISO5436_2000)
+_NEWEST_SDF = str(SdfDialect.ISO_2_0)
+_NEWEST_X3P = x3pio.X3pDialect.ISO25178_72_2017_DAM1.value
 
 
-def _magic(dialect: SdfDialect, file_format: FileFormat) -> str:
-    """Return the file magic, for example ``bISO-2.0``, of a version in a format."""
-    return f"{BINARY_PREFIX if file_format is FileFormat.BINARY else ASCII_PREFIX}{dialect}"
+class SaveOptionsDialog(QDialog):
+    """Version, encoding and data type of the SDF or x3p file that the user is about to save.
 
-
-def _x3p_label(dialect: x3pio.X3pDialect, storage: x3pio.DataStorage) -> str:
-    """Return the label, for example ``x3p-DAM1 (binary)``, of an x3p dialect and storage."""
-    return f"x3p-{x3p_code(dialect)} ({storage.name.lower()})"
-
-
-@dataclass(frozen=True)
-class _Target:
-    """A format and version a file can be saved in."""
-
-    dialect: SdfDialect | x3pio.X3pDialect
-    file_format: FileFormat | x3pio.DataStorage
-    label: str
-
-    @property
-    def is_sdf(self) -> bool:
-        return isinstance(self.dialect, SdfDialect)
-
-
-def _targets() -> list[_Target]:
-    sdf = [
-        _Target(dialect, file_format, _magic(dialect, file_format))
-        for file_format in (FileFormat.BINARY, FileFormat.ASCII)
-        for dialect in SdfDialect
-    ]
-    x3p = [
-        _Target(dialect, storage, _x3p_label(dialect, storage))
-        for dialect in (x3pio.X3pDialect.ISO25178_72_2017_DAM1, x3pio.X3pDialect.ISO5436_2000)
-        for storage in (x3pio.DataStorage.BINARY, x3pio.DataStorage.XML)
-    ]
-    return sdf + x3p
-
-
-class SaveAsDialog(QDialog):
-    """Options for saving the loaded surface as an SDF or an x3p file, preset from that file.
-
-    Every version can be chosen; data types the chosen SDF version does not define are
-    disabled. An SDF version the file cannot be saved in has the reason as tooltip, except for a
-    file that is not a grid of heights, which cannot be saved as SDF at all and has those
-    versions disabled.
+    The format has been chosen before, in the file dialog. The options are preset from the
+    loaded file where it has the same format, otherwise the newest version in binary encoding
+    and the widest data type. What the chosen options cannot do is said in a note below them, and
+    the dialog cannot be accepted while the file cannot be saved with them.
     """
 
     def __init__(
         self,
         file: SurfaceFile,
+        is_x3p: bool,
         parent: QWidget | None = None,
-        last: tuple[str, str] | None = None,
+        last: tuple[str, str, str] | None = None,
     ) -> None:
-        """Create the dialog with the options of ``file`` selected.
+        """Create the dialog for saving ``file`` in the format of ``is_x3p``.
 
-        ``last`` is the ``(version, data type)`` chosen the previous time, as returned by
-        :attr:`version` and :attr:`data_type_name`. It replaces the options of ``file`` if valid.
+        ``last`` is the ``(version, encoding, data type)`` chosen the previous time in this format,
+        as shown by :attr:`version_name`, :attr:`encoding_name` and :attr:`data_type_name`. It
+        replaces the options of ``file`` where it is valid.
         """
         super().__init__(parent)
+        self._file = file
+        self._is_x3p = is_x3p
         self._sdf: SdfFile | None = None
-        if not not_a_grid(file):
+        if not is_x3p and is_grid(file):
             self._sdf = file if isinstance(file, SdfFile) else x3p_to_sdf(file)
-        self.setWindowTitle(self.tr("Save as"))
+        self.setWindowTitle(self.tr("Save as x3p") if is_x3p else self.tr("Save as SDF"))
 
-        self._targets = _targets()
         self._version = QComboBox(self)
-        for target in self._targets:
-            self._version.addItem(target.label)
+        self._encoding = QComboBox(self)
         self._data_type = QComboBox(self)
-        self._data_family: bool | None = None
+        if is_x3p:
+            for x3p_dialect in _X3P_DIALECTS:
+                self._version.addItem(x3p_dialect.value, x3p_dialect)
+            self._encoding.addItem(self.tr("Binary"), x3pio.DataStorage.BINARY)
+            self._encoding.addItem(self.tr("XML"), x3pio.DataStorage.XML)
+            for x3p_type in x3p_data_types():
+                self._data_type.addItem(x3p_type.name.lower(), x3p_type)
+        else:
+            for sdf_dialect in SdfDialect:
+                self._version.addItem(str(sdf_dialect), sdf_dialect)
+            self._encoding.addItem(self.tr("Binary"), FileFormat.BINARY)
+            self._encoding.addItem(self.tr("ASCII"), FileFormat.ASCII)
+            for sdf_type in DataType:
+                self._data_type.addItem(sdf_type.name.lower(), sdf_type)
 
-        layout = QFormLayout(self)
-        layout.addRow(self.tr("Version:"), self._version)
-        layout.addRow(self.tr("Data type:"), self._data_type)
-        buttons = QDialogButtonBox(
+        self._note = QLabel(self)
+        self._note.setWordWrap(True)
+        self._buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self
         )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addRow(buttons)
+        self._buttons.accepted.connect(self.accept)
+        self._buttons.rejected.connect(self.reject)
+        layout = QFormLayout(self)
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)  # follows the note
+        layout.addRow(self.tr("Version:"), self._version)
+        layout.addRow(self.tr("Encoding:"), self._encoding)
+        layout.addRow(self.tr("Data type:"), self._data_type)
+        layout.addRow(self._note)
+        layout.addRow(self._buttons)
 
-        if isinstance(file, SdfFile):
-            self._version.setCurrentText(file.header.magic)
-            data_type = DataType(file.header.data_type).name.lower()
-        else:
-            self._version.setCurrentText(_x3p_label(file.header.dialect, file.storage))
-            z_type = file.header.z.data_type
-            data_type = z_type.name.lower()
-        self._update_availability()
-        self._select_data_type(data_type)
+        self._preset()
         if last is not None:
             self._apply_last(*last)
-        self._update_availability()
-        self._version.currentIndexChanged.connect(lambda _index: self._update_availability())
-
-    @property
-    def _target(self) -> _Target:
-        return self._targets[self._version.currentIndex()]
-
-    @property
-    def version(self) -> str:
-        """The chosen version with its format, for example ``bISO-2.0`` or ``x3p-DAM1 (binary)``."""
-        return self._version.currentText()
-
-    @property
-    def is_x3p(self) -> bool:
-        """Whether an x3p file is chosen, not an SDF file."""
-        return not self._target.is_sdf
+        self._update()
+        self._version.currentIndexChanged.connect(lambda _index: self._update())
+        self._encoding.currentIndexChanged.connect(lambda _index: self._update())
 
     @property
     def dialect(self) -> SdfDialect | x3pio.X3pDialect:
-        """The chosen version without the format, for example ``ISO-2.0``."""
-        return self._target.dialect
+        """The chosen version of the standard."""
+        data = self._version.currentData()
+        return x3pio.X3pDialect(data) if self._is_x3p else SdfDialect(data)
 
     @property
     def file_format(self) -> FileFormat | x3pio.DataStorage:
-        """The chosen ASCII or binary representation, or the storage of an x3p file."""
-        return self._target.file_format
+        """The chosen encoding: binary or ASCII for SDF, binary or XML for x3p."""
+        data = self._encoding.currentData()
+        return x3pio.DataStorage(data) if self._is_x3p else FileFormat(data)
 
     @property
     def data_type(self) -> DataType | x3pio.DataType:
         """The chosen storage type of the heights."""
         data = self._data_type.currentData()
-        return DataType(data) if self._target.is_sdf else x3pio.DataType(data)
+        return x3pio.DataType(data) if self._is_x3p else DataType(data)
+
+    @property
+    def version_name(self) -> str:
+        """The chosen version as shown in the dialog, for example ``ISO-2.0``."""
+        return self._version.currentText()
+
+    @property
+    def encoding_name(self) -> str:
+        """The chosen encoding as shown in the dialog, for example ``Binary``."""
+        return self._encoding.currentText()
 
     @property
     def data_type_name(self) -> str:
         """The chosen data type as shown in the dialog, for example ``int32``."""
         return self._data_type.currentText()
 
-    def _select_data_type(self, name: str) -> None:
-        index = self._data_type.findText(name)
-        if index >= 0:
-            self._data_type.setCurrentIndex(index)
-
-    def _apply_last(self, version: str, data_type: str) -> None:
-        index = self._version.findText(version)
-        if index >= 0 and self._problem(self._targets[index]) is None:
-            self._version.setCurrentIndex(index)
-            self._update_availability()
-        self._select_data_type(data_type)
-
-    def _problem(self, target: _Target) -> ExportProblem | None:
-        """Return why the file cannot be saved in ``target``, or ``None``."""
-        if not isinstance(target.dialect, SdfDialect) or self._sdf is None:
-            return None
-        file_format = cast(FileFormat, target.file_format)
-        return format_problem(self._sdf, target.dialect, file_format)
-
-    def _problem_text(self, problem: ExportProblem | None, dialect: SdfDialect) -> str | None:
-        if problem is None:
-            return None
-        if problem.kind is ProblemKind.BINARY_LIMIT:
-            return self.tr(
-                "The binary format of {version} stores at most {limit} points per row"
-            ).format(version=dialect, limit=problem.limit)
-        return self.tr(
-            'The trailer must be in the tagged "Name = Value" format for {version}'
-        ).format(version=dialect)
+    def _preset(self) -> None:
+        """Select the options of the loaded file where it has the format that is saved."""
+        file = self._file
+        if isinstance(file, SdfFile) and not self._is_x3p:
+            self._select(self._version, str(SdfDialect(file.header.dialect)))
+            self._encoding.setCurrentIndex(0 if file.header.binary else 1)
+            self._select(self._data_type, DataType(file.header.data_type).name.lower())
+        elif isinstance(file, x3pio.X3pFile) and self._is_x3p:
+            self._select(self._version, file.header.dialect.value)
+            self._encoding.setCurrentIndex(0 if file.storage is x3pio.DataStorage.BINARY else 1)
+            self._select(self._data_type, file.header.z.data_type.name.lower())
+        else:  # another format: the newest version in binary encoding, in the widest type
+            self._select(self._version, _NEWEST_SDF if not self._is_x3p else _NEWEST_X3P)
+            self._select(self._data_type, "float64" if self._is_x3p else "binary64")
 
     @staticmethod
-    def _set_available(combo: QComboBox, index: int, problem: str | None) -> None:
-        item = cast(QStandardItemModel, combo.model()).item(index)
-        item.setEnabled(problem is None)
-        item.setToolTip(problem or "")
+    def _select(combo: QComboBox, text: str) -> None:
+        index = combo.findText(text)
+        if index >= 0:
+            combo.setCurrentIndex(index)
 
-    def _fill_data_types(self, is_sdf: bool) -> None:
-        """List the data types of SDF or of x3p, keeping the chosen name if it still exists."""
-        if self._data_family is is_sdf:
-            return
-        previous = self._data_type.currentText()
-        self._data_family = is_sdf
-        self._data_type.clear()
-        types = list(DataType) if is_sdf else x3p_data_types()
-        for data_type in types:
-            self._data_type.addItem(data_type.name.lower(), data_type)
-        self._select_data_type(previous)
+    def _apply_last(self, version: str, encoding: str, data_type: str) -> None:
+        self._select(self._version, version)
+        self._select(self._encoding, encoding)
+        self._select(self._data_type, data_type)
 
-    def _update_availability(self) -> None:
-        """Disable what the file or the chosen version cannot do, and pick a valid data type."""
-        versions = cast(QStandardItemModel, self._version.model())
-        for index, target in enumerate(self._targets):
-            item = versions.item(index)
-            if not isinstance(target.dialect, SdfDialect):
-                continue
-            item.setEnabled(self._sdf is not None)  # only a grid of heights is an SDF file
-            problem = self._problem_text(self._problem(target), target.dialect)
-            item.setToolTip(problem or "")
+    def _problem(self) -> ExportProblem | None:
+        """Return why the file cannot be saved with the chosen version and encoding."""
+        dialect, file_format = self.dialect, self.file_format
+        if not isinstance(dialect, SdfDialect) or self._sdf is None:
+            return None
+        return format_problem(self._sdf, dialect, cast(FileFormat, file_format))
 
-        target = self._target
-        self._fill_data_types(target.is_sdf)
-        if not isinstance(target.dialect, SdfDialect):
-            return
+    def _problem_text(self, problem: ExportProblem) -> str:
+        dialect = self.version_name
+        if problem.kind is ProblemKind.BINARY_LIMIT:
+            return self.tr(
+                "The binary encoding of {version} stores at most {limit} points per row."
+            ).format(version=dialect, limit=problem.limit)
+        return self.tr(
+            'The trailer must be in the tagged "Name = Value" format for {version}.'
+        ).format(version=dialect)
+
+    def _consequences(self) -> str:
+        """Return what saving in the chosen version loses or changes, or an empty string."""
+        file, dialect = self._file, self.dialect
+        if isinstance(file, SdfFile):
+            return "" if not self._is_x3p else self.tr("The trailer is saved as the comment.")
+        if not self._is_x3p:
+            note = self.tr(
+                "The metadata is saved in the trailer. Offsets, the rotation and the vendor "
+                "extensions are not kept."
+            )
+            if file.num_layers > 1:
+                note += " " + self.tr("Only the first layer is saved.")
+            return note
+        if (
+            isinstance(dialect, x3pio.X3pDialect)
+            and file.extensions
+            and not extensions_fit(file, dialect)
+        ):
+            return self.tr("The vendor extensions cannot be kept in this version.")
+        return ""
+
+    def _update(self) -> None:
+        """Disable the data types the version does not define, and say what is lost or wrong."""
+        dialect = self.dialect
         first_valid: int | None = None
-        allowed = allowed_data_types(target.dialect)
-        for index in range(self._data_type.count()):
-            data_type = DataType(self._data_type.itemData(index))
-            supported = data_type in allowed
-            problem = None
-            if not supported:
-                problem = self.tr("Not defined for version {version}").format(
-                    version=target.dialect
-                )
-            self._set_available(self._data_type, index, problem)
-            if supported and first_valid is None:
-                first_valid = index
-        if self.data_type not in allowed and first_valid is not None:
-            self._data_type.setCurrentIndex(first_valid)
+        if isinstance(dialect, SdfDialect):
+            allowed = allowed_data_types(dialect)
+            model = cast(QStandardItemModel, self._data_type.model())
+            for index in range(self._data_type.count()):
+                supported = DataType(self._data_type.itemData(index)) in allowed
+                model.item(index).setEnabled(supported)
+                if supported and first_valid is None:
+                    first_valid = index
+            if self.data_type not in allowed and first_valid is not None:
+                self._data_type.setCurrentIndex(first_valid)
+
+        problem = self._problem()
+        self._note.setText(self._problem_text(problem) if problem else self._consequences())
+        self._note.setVisible(bool(self._note.text()))
+        self._buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(problem is None)

@@ -43,8 +43,12 @@ class Settings:
     colormap = _Setting("colormap", DEFAULT_COLORMAP)
     reverse = _Setting("reverse", False)
     render_mode = _Setting("renderMode", "surface")
-    save_version = _Setting("saveVersion", "")
-    save_data_type = _Setting("saveDataType", "")
+    save_sdf_version = _Setting("saveSdfVersion", "")
+    save_sdf_encoding = _Setting("saveSdfEncoding", "")
+    save_sdf_data_type = _Setting("saveSdfDataType", "")
+    save_x3p_version = _Setting("saveX3pVersion", "")
+    save_x3p_encoding = _Setting("saveX3pEncoding", "")
+    save_x3p_data_type = _Setting("saveX3pDataType", "")
     last_directory = _Setting("lastDirectory", "")
 
     def __init__(self) -> None:
