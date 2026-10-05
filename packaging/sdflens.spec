@@ -2,13 +2,15 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# PyInstaller spec of the Windows app; built by build_windows.ps1 (SPECPATH is this folder).
+# PyInstaller spec of the app; built by build_windows.ps1 and build_linux.sh (SPECPATH is this
+# folder).
+import sys
 from pathlib import Path
 
 root = Path(SPECPATH).parent
 package = root / "src" / "sdflens"
 
-# The About dialog shows the notices file that build_windows.ps1 generates before this build.
+# The About dialog shows the notices file that the build script generates before this build.
 datas = [
     (str(package / "icons"), "sdflens/icons"),
     (str(root / "build" / "THIRD-PARTY-NOTICES.txt"), "sdflens"),
@@ -29,7 +31,8 @@ exe = EXE(
     exclude_binaries=True,
     name="sdflens",
     console=False,
-    icon=str(root / "build" / "sdflens.ico"),
+    # Only Windows takes the icon from the executable; Linux takes it from the desktop file.
+    icon=str(root / "build" / "sdflens.ico") if sys.platform == "win32" else None,
 )
 
 COLLECT(exe, analysis.binaries, analysis.datas, name="sdflens")

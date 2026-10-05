@@ -59,3 +59,16 @@ The build installs exactly the package versions listed in `pylock.build.toml`. T
 
 Until x3pio is released on PyPI, the script installs it separately from its git repository, at a
 commit that it names, because pip cannot install a git dependency together with hashes.
+
+## Linux AppImage
+
+On Linux, this builds a standalone app and, if [appimagetool](https://github.com/AppImage/appimagetool)
+is in the `PATH` or named by `APPIMAGETOOL`, the AppImage `build/appimage/sdflens-<version>-<arch>.AppImage`:
+
+```sh
+./packaging/build_linux.sh
+```
+
+Build it on the oldest distribution that should run it, since an AppImage needs the glibc of the
+system it was built on or newer. The workflow in `.github/workflows/build.yml` does that for the
+releases.

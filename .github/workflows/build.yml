@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-name: Build installer
+name: Build packages
 
 on:
   push:
@@ -39,3 +39,48 @@ jobs:
           files: |
             build/installer/*.msi
             build/installer/*.cdx.json
+
+  linux-appimage:
+    # The oldest runner image: the AppImage needs the glibc of the system it is built on or newer.
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install the libraries that Qt needs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libdbus-1-3 \
+            libfontconfig1 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1
+      - name: Install the locked packages and the app
+        run: |
+          python -m pip install -r pylock.build.toml
+          # Temporary: x3pio is a git dependency, which pip cannot install together with hashes.
+          # Remove this step and --no-emit-package in pylock.build.toml when x3pio is on PyPI.
+          python -m pip install --no-deps "x3pio @ git+https://github.com/aschet/x3pio.git@79e9e8678e21b020b3b1e13997ee300252f09a0c"
+          python -m pip install --no-deps --no-build-isolation -e .
+      - name: Download appimagetool
+        run: |
+          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  appimagetool" | sha256sum -c -
+          chmod +x appimagetool
+      - name: Build the app and the AppImage
+        # appimagetool is itself an AppImage, and the runner has no FUSE.
+        run: APPIMAGETOOL="$PWD/appimagetool" APPIMAGE_EXTRACT_AND_RUN=1 ./packaging/build_linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdflens-appimage
+          path: |
+            build/appimage/*.AppImage
+            build/appimage/*.cdx.json
+      - name: Attach the AppImage to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/appimage/*.AppImage
+            build/appimage/*.cdx.json

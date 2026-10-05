@@ -39,7 +39,7 @@ class AboutDialog(QDialog):
         summary = QLabel(
             self.tr(
                 "<h3>sdflens {version}</h3>"
-                "<p>3D and 2D viewer for ISO 25178-71 SDF surface data files.</p>"
+                "<p>3D and 2D viewer for ISO 25178 SDF and x3p surface data files.</p>"
                 "<p>Copyright &copy; 2026 Thomas Ascher</p>"
                 '<p>License: <a href="https://spdx.org/licenses/GPL-3.0-or-later.html">'
                 "GPL-3.0-or-later</a></p>"

@@ -29,9 +29,9 @@ def _set_windows_app_id() -> None:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="sdflens", description="View ISO 25178-71 SDF surface data files in 2D and 3D."
+        prog="sdflens", description="View ISO 25178 SDF and x3p surface data files in 2D and 3D."
     )
-    parser.add_argument("path", nargs="?", help="SDF file to open")
+    parser.add_argument("path", nargs="?", help="SDF or x3p file to open")
     return parser
 
 
