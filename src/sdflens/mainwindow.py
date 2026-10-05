@@ -569,6 +569,7 @@ class MainWindow(QMainWindow):
         file: SurfaceFile,
         model: SurfaceModel | PointCloudModel,
         mesh: SurfaceMesh,
+        checksum_failed: bool,
     ) -> None:
         QApplication.restoreOverrideCursor()
         self._file = file
@@ -585,7 +586,16 @@ class MainWindow(QMainWindow):
         self._set_view_mode(self._view_preference if grid is not None else _VIEW_3D)
         self._update_title(path)
         self._update_actions()
-        self.statusBar().showMessage(self.tr("Loaded {name}").format(name=Path(path).name), 2000)
+        name = Path(path).name
+        if checksum_failed:
+            self.statusBar().showMessage(
+                self.tr("Loaded {name}, but its checksum does not match its content").format(
+                    name=name
+                ),
+                10000,
+            )
+        else:
+            self.statusBar().showMessage(self.tr("Loaded {name}").format(name=name), 2000)
 
     def _on_failed(self, path: str, message: str) -> None:
         QApplication.restoreOverrideCursor()

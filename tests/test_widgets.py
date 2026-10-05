@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import io
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -281,7 +283,7 @@ def test_metadata_text_includes_the_trailer(tmp_path: Path) -> None:
 
 def test_loader_reads_in_the_background(ramp_path: Path) -> None:
     loader = Loader()
-    results: list[tuple[str, object, object, object]] = []
+    results: list[tuple[str, object, object, object, bool]] = []
     loader.loaded.connect(lambda *args: results.append(args))
 
     assert loader.load(str(ramp_path))
@@ -294,6 +296,26 @@ def test_loader_reads_in_the_background(ramp_path: Path) -> None:
     assert isinstance(results[0][2], SurfaceModel)
     assert results[0][2].invalid_count == 1
     assert isinstance(results[0][3], SurfaceMesh)
+    assert results[0][4] is False
+
+
+def test_x3p_with_a_wrong_checksum_is_shown_with_a_note(tmp_path: Path) -> None:
+    path = tmp_path / "edited.x3p"
+    data = make_x3p().dumps()
+    with zipfile.ZipFile(io.BytesIO(data)) as source, zipfile.ZipFile(path, "w") as target:
+        for info in source.infolist():
+            content = source.read(info)
+            if info.filename == "main.xml":
+                content = content.replace(b"Jane Doe", b"Joe Doe")  # changed after it was written
+            target.writestr(info, content)
+    with pytest.raises(x3pio.X3pChecksumError):
+        x3pio.read(path)
+    window = MainWindow()
+    _load(window, path)
+
+    assert isinstance(window._model, SurfaceModel)
+    assert "checksum" in window.statusBar().currentMessage()
+    window.close()
 
 
 def test_loader_reports_missing_file(tmp_path: Path) -> None:
@@ -874,7 +896,7 @@ def test_save_as_remembers_the_chosen_options_per_format(
     monkeypatch.setattr(SaveOptionsDialog, "encoding_name", property(lambda self: "ASCII"))
     monkeypatch.setattr(SaveOptionsDialog, "data_type_name", property(lambda self: "int16"))
     target = tmp_path / "again.sdf"
-    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args: (str(target), ""))
+    _fake_file_dialog(monkeypatch, target, "Surface data file (*.sdf)")
     window._save_as()
 
     settings = window._settings

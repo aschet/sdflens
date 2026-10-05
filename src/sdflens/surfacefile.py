@@ -35,14 +35,17 @@ FILE_FILTER = "*.sdf *.x3p"
 _ZIP_MAGIC = b"PK"
 
 
-def read_surface_file(path: str) -> SurfaceFile:
+def read_surface_file(path: str, *, verify: bool = True) -> SurfaceFile:
     """Read ``path`` as an x3p file if it is a zip container, otherwise as an SDF file.
 
-    The kind is taken from the content, not from the extension.
+    The kind is taken from the content, not from the extension. ``verify`` checks the MD5
+    checksums of an x3p file, see :func:`x3pio.read`; an SDF file has none.
+
+    :raises x3pio.X3pChecksumError: If ``verify`` and a checksum of an x3p file does not match.
     """
     with open(path, "rb") as stream:
         is_x3p = stream.read(len(_ZIP_MAGIC)) == _ZIP_MAGIC
-    return x3pio.read(path) if is_x3p else sdfio.read(path)
+    return x3pio.read(path, verify=verify) if is_x3p else sdfio.read(path)
 
 
 def is_grid(file: SurfaceFile) -> bool:
