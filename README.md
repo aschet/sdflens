@@ -18,8 +18,11 @@ x3p files (`.x3p`), built on [sdfio](https://github.com/aschet/sdfio),
 - Selectable, reversible colormaps with a color bar; non-measured points are left empty.
 - Point clouds of x3p files are shown in 3D only, as colored points.
 - Shows the header fields of the file, which can be copied or exported as text, with the trailer
-  of an SDF file or the metadata and the list of the vendor extensions of an x3p file.
-- Saves an SDF surface as another version, format or data type of the standard.
+  of an SDF file or the metadata and the list of the vendor extensions of an x3p file. Double-clicking a vendor
+  extension saves its file.
+- Saves the surface as an SDF or an x3p file, in any version, format or data type of the
+  standards. Converting between them keeps the scales and turns the metadata into the other
+  form; point clouds can only be saved as x3p.
 - Screenshots as PNG file or on the clipboard.
 
 Try it with the sample [samples/microlens-array.sdf](samples/microlens-array.sdf).

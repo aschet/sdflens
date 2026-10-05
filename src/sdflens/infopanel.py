@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import x3pio
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
@@ -28,7 +28,7 @@ from .surfacefile import SurfaceFile
 
 __all__ = [
     "InfoPanel",
-    "extension_rows",
+    "extension_names",
     "format_metadata",
     "metadata_rows",
     "trailer_text",
@@ -118,18 +118,12 @@ def _x3p_rows(x3p: x3pio.X3pFile) -> list[tuple[str, str]]:
     return rows
 
 
-def extension_rows(file: SurfaceFile) -> list[tuple[str, str]]:
-    """Return the vendor extension files of an x3p file as ``(ID or path, size)`` rows.
+def extension_names(file: SurfaceFile) -> list[str]:
+    """Return the IDs (or paths) of the vendor extensions of an x3p file, in file order.
 
-    The size is in bytes; an ID that has no file says so. An SDF file has no extensions.
+    An SDF file has no extensions.
     """
-    if isinstance(file, SdfFile):
-        return []
-    rows = []
-    for name in file.extensions:
-        content = file.extensions[name]
-        rows.append((name, "no file" if content is None else f"{len(content)} bytes"))
-    return rows
+    return [] if isinstance(file, SdfFile) else list(file.extensions)
 
 
 def trailer_text(sdf: SdfFile) -> str:
@@ -154,15 +148,21 @@ def format_metadata(file: SurfaceFile) -> str:
             lines.append(f"{'Trailer':<{width}} =")
             lines.extend(text.splitlines())
     else:
-        extensions = extension_rows(file)
+        extensions = extension_names(file)
         if extensions:
             lines.append(f"{'VendorExtensions':<{width}} =")
-            lines.extend(f"{name} ({size})" for name, size in extensions)
+            lines.extend(extensions)
     return "\n".join(lines) + "\n"
 
 
 class InfoPanel(QWidget):
-    """Read-only table of the header fields with the trailer or the vendor extensions below."""
+    """Read-only table of the header fields with the trailer or the vendor extensions below.
+
+    ``extension_activated(name)`` is emitted when a vendor extension is double-clicked; ``name``
+    is its ID, or its path for the standard before the amendment.
+    """
+
+    extension_activated = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Create an empty panel."""
@@ -182,8 +182,11 @@ class InfoPanel(QWidget):
         self.trailer.setReadOnly(True)
         self._trailer_label = QLabel(self.tr("Trailer"), self)
         self.extensions = QListWidget(self)
-        self.extensions.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self.extensions.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.extensions.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.extensions.setToolTip(self.tr("Double-click to save the file of an extension"))
+        self.extensions.itemDoubleClicked.connect(
+            lambda item: self.extension_activated.emit(item.text())
+        )
         self._extensions_label = QLabel(self.tr("Vendor extensions"), self)
 
         layout = QVBoxLayout(self)
@@ -209,8 +212,7 @@ class InfoPanel(QWidget):
         self.trailer.setPlainText(trailer_text(file) if isinstance(file, SdfFile) else "")
         self.extensions.clear()
         if file is not None and not isinstance(file, SdfFile):
-            for name, size in extension_rows(file):
-                self.extensions.addItem(f"{name} ({size})")
+            self.extensions.addItems(extension_names(file))
 
     def _fit_table(self, rows: int) -> None:
         """Show a short table completely, and let a long one scroll in the space it gets."""

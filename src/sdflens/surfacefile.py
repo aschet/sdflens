@@ -19,6 +19,7 @@ __all__ = [
     "SurfaceFile",
     "build_mesh",
     "build_model",
+    "is_grid",
     "read_surface_file",
 ]
 
@@ -44,6 +45,13 @@ def read_surface_file(path: str) -> SurfaceFile:
     return x3pio.read(path) if is_x3p else sdfio.read(path)
 
 
+def is_grid(file: SurfaceFile) -> bool:
+    """Whether ``file`` is a matrix of heights on a regular grid, which an SDF file can hold."""
+    if isinstance(file, sdfio.SdfFile):
+        return True
+    return file.is_matrix and file.header.x.is_incremental and file.header.y.is_incremental
+
+
 def build_model(file: SurfaceFile) -> SurfaceModel | PointCloudModel:
     """Return the model displaying ``file``.
 
@@ -56,10 +64,9 @@ def build_model(file: SurfaceFile) -> SurfaceModel | PointCloudModel:
     """
     if isinstance(file, sdfio.SdfFile):
         return SurfaceModel.from_sdf(file)
-    header = file.header
-    if file.is_matrix and header.x.is_incremental and header.y.is_incremental:
+    if is_grid(file):
         return SurfaceModel.from_grid(
-            file.data[0], abs(header.x.increment), abs(header.y.increment)
+            file.data[0], abs(file.header.x.increment), abs(file.header.y.increment)
         )
     return PointCloudModel.from_points(file.to_points(global_coordinates=False))
 

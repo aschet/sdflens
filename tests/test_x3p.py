@@ -13,7 +13,7 @@ import x3pio
 
 from helpers import make_cloud, make_ramp, make_sdf, make_x3p
 from sdflens.glwidget import RenderMode, _primitives
-from sdflens.infopanel import extension_rows, format_metadata, metadata_rows
+from sdflens.infopanel import extension_names, format_metadata, metadata_rows
 from sdflens.mesh import SurfaceMesh
 from sdflens.pointcloud import PointCloudModel
 from sdflens.surface import NoMeasuredPointsError, SurfaceModel
@@ -151,12 +151,12 @@ def test_rotation_and_vendor_id_of_the_old_dialect_are_shown() -> None:
     assert rows["VendorSpecificID"] == "http://www.vendor.com/format"
 
 
-def test_vendor_extensions_are_listed_with_their_size() -> None:
-    assert extension_rows(make_x3p()) == [
-        ("http://www.vendor.com/mypath/a.xml", "4 bytes"),
-        ("http://www.vendor.com/image.png", "1500 bytes"),
+def test_vendor_extensions_are_listed_by_their_id() -> None:
+    assert extension_names(make_x3p()) == [
+        "http://www.vendor.com/mypath/a.xml",
+        "http://www.vendor.com/image.png",
     ]
-    assert extension_rows(make_sdf(make_ramp())) == []
+    assert extension_names(make_sdf(make_ramp())) == []
 
 
 def test_exported_information_lists_the_vendor_extensions() -> None:
@@ -166,7 +166,7 @@ def test_exported_information_lists_the_vendor_extensions() -> None:
     assert any(line.startswith("Creator") for line in lines)
     assert lines[-3].startswith("VendorExtensions")
     assert lines[-2:] == [
-        "http://www.vendor.com/mypath/a.xml (4 bytes)",
-        "http://www.vendor.com/image.png (1500 bytes)",
+        "http://www.vendor.com/mypath/a.xml",
+        "http://www.vendor.com/image.png",
     ]
     assert "VendorExtensions" not in format_metadata(x3pio.X3pFile.from_points(make_cloud()))

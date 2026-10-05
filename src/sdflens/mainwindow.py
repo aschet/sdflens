@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
-import sdfio
+import x3pio
 from PySide6.QtCore import QDir, Qt
 from PySide6.QtGui import (
     QAction,
@@ -329,6 +329,7 @@ class MainWindow(QMainWindow):
         for action in (self._export_action, self._copy_metadata_action):
             buttons.addWidget(self._action_button(action, info))
         buttons.addStretch(1)
+        self._info_panel.extension_activated.connect(self._save_extension)
         info_layout.addWidget(self._info_panel, 1)
         info_layout.addLayout(buttons)
 
@@ -490,10 +491,10 @@ class MainWindow(QMainWindow):
             self._zoom_out_action,
         ):
             action.setEnabled(loaded)
+        self._z_bar.set_auto_available(loaded)
+        self._save_as_action.setEnabled(loaded)
         self._export_action.setEnabled(loaded)
         self._copy_metadata_action.setEnabled(loaded)
-        self._z_bar.set_auto_available(loaded)
-        self._save_as_action.setEnabled(isinstance(self._file, sdfio.SdfFile))
         for action in (self._view_2d_action, self._view_profile_action):
             action.setEnabled(not self._is_cloud)
 
@@ -527,7 +528,7 @@ class MainWindow(QMainWindow):
             self.load_file(path)
 
     def _save_as(self) -> None:
-        if isinstance(self._file, sdfio.SdfFile):
+        if self._file is not None:
             self._exporter.save_as(self._file, self._path)
 
     def _capture(self) -> QImage | None:
@@ -553,6 +554,11 @@ class MainWindow(QMainWindow):
     def _copy_metadata(self) -> None:
         if self._file is not None:
             self._exporter.copy_metadata(self._file)
+
+    def _save_extension(self, name: str) -> None:
+        file = self._file
+        if isinstance(file, x3pio.X3pFile) and name in file.extensions:
+            self._exporter.export_extension(name, file.extensions[name])
 
     def _show_about(self) -> None:
         AboutDialog(self).exec()

@@ -392,13 +392,79 @@ def test_x3p_surface_shows_its_metadata_and_vendor_extensions(tmp_path: Path) ->
     assert not panel.extensions.isHidden()
     assert panel.trailer.isHidden()
     assert [panel.extensions.item(i).text() for i in range(panel.extensions.count())] == [
-        "http://www.vendor.com/mypath/a.xml (4 bytes)",
-        "http://www.vendor.com/image.png (1500 bytes)",
+        "http://www.vendor.com/mypath/a.xml",
+        "http://www.vendor.com/image.png",
     ]
     assert window._view_2d_action.isEnabled()
     assert window._view_profile_action.isEnabled()
-    assert not window._save_as_action.isEnabled()  # only SDF files can be saved
+    assert window._save_as_action.isEnabled()  # an x3p file can be saved as x3p or SDF
     assert window._export_action.isEnabled()
+    window.close()
+
+
+def test_export_and_copy_of_an_x3p_file_act_on_the_information(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "surface.x3p"
+    make_x3p().save(path)
+    window = MainWindow()
+    _load(window, path)
+    target = tmp_path / "out.txt"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args: (str(target), ""))
+
+    assert window._export_action.isEnabled()
+    assert window._copy_metadata_action.isEnabled()
+    window._export_action.trigger()
+    text = target.read_text(encoding="utf-8")
+    assert "FeatureType" in text
+    assert "http://www.vendor.com/mypath/a.xml" in text  # the extensions are listed
+
+    QGuiApplication.clipboard().clear()
+    window._copy_metadata_action.trigger()
+    assert QGuiApplication.clipboard().text() == text
+    window.close()
+
+
+def test_double_click_on_a_vendor_extension_saves_its_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "surface.x3p"
+    make_x3p().save(path)
+    window = MainWindow()
+    _load(window, path)
+    asked: list[str] = []
+    target = tmp_path / "saved.xml"
+
+    def fake_save(parent: object, title: str, start: str, name_filter: str) -> tuple[str, str]:
+        asked.append(Path(start).name)
+        return str(target), ""
+
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", fake_save)
+    extensions = window._info_panel.extensions
+    item = extensions.item(0)
+    assert item is not None
+    assert extensions.selectionMode() is QAbstractItemView.SelectionMode.SingleSelection
+    extensions.setCurrentItem(item)  # a click selects the entry, to show that it is clickable
+    assert extensions.selectedItems() == [item]
+    extensions.itemDoubleClicked.emit(item)
+
+    assert asked == ["a.xml"]  # the last part of the ID
+    assert target.read_bytes() == b"<a/>"
+
+    target.unlink()
+    asked.clear()
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args: ("", ""))
+    extensions.itemDoubleClicked.emit(item)  # cancelling the dialog writes nothing
+    assert not target.exists()
+    window.close()
+
+
+def test_export_and_copy_of_an_sdf_file_act_on_the_information(ramp_path: Path) -> None:
+    window = MainWindow()
+    _load(window, ramp_path)
+
+    assert window._export_action.isEnabled()
+    assert window._copy_metadata_action.isEnabled()
     window.close()
 
 
@@ -831,3 +897,106 @@ def test_save_as_reports_failures(
 
     assert len(messages) == 1
     assert QApplication.overrideCursor() is None
+
+
+def test_save_as_dialog_offers_x3p_targets_and_their_data_types(ramp_path: Path) -> None:
+    dialog = SaveAsDialog(sdfio.read(ramp_path))
+
+    assert not dialog.is_x3p
+    assert "x3p-DAM1 (binary)" in [
+        dialog._version.itemText(i) for i in range(dialog._version.count())
+    ]
+    dialog._version.setCurrentText("x3p-2000 (xml)")
+    assert dialog.is_x3p
+    assert dialog.dialect is x3pio.X3pDialect.ISO5436_2000
+    assert dialog.file_format is x3pio.DataStorage.XML
+    assert _enabled(dialog._data_type) == ["int16", "int32", "float32", "float64"]
+    dialog._data_type.setCurrentText("int32")
+    assert dialog.data_type is x3pio.DataType.INT32
+    dialog._version.setCurrentText("bISO-2.0")
+    assert not dialog.is_x3p
+    assert dialog.data_type_name == "int32"  # the chosen name is kept where it exists
+    assert dialog.data_type is sdfio.DataType.INT32
+
+
+def test_save_as_dialog_of_an_x3p_file_starts_with_its_own_format(tmp_path: Path) -> None:
+    x3p = make_x3p().with_z_type(x3pio.DataType.INT16)
+    x3p.storage = x3pio.DataStorage.XML
+    dialog = SaveAsDialog(x3p)
+
+    assert dialog.version == "x3p-DAM1 (xml)"
+    assert dialog.data_type is x3pio.DataType.INT16
+    dialog._version.setCurrentText("bISO-2.0")  # an x3p grid can be saved as SDF
+    assert dialog._version.model().flags(dialog._version.model().index(0, 0)) & (
+        Qt.ItemFlag.ItemIsEnabled
+    )
+
+
+def test_save_as_dialog_disables_sdf_for_a_point_cloud() -> None:
+    dialog = SaveAsDialog(x3pio.X3pFile.from_points(make_cloud()))
+    enabled = _enabled(dialog._version)
+
+    assert enabled == [
+        "x3p-DAM1 (binary)",
+        "x3p-DAM1 (xml)",
+        "x3p-2000 (binary)",
+        "x3p-2000 (xml)",
+    ]
+    assert dialog.is_x3p
+
+
+def test_save_as_remembers_an_x3p_choice(tmp_path: Path) -> None:
+    sdf = make_sdf(make_ramp())
+    dialog = SaveAsDialog(sdf, last=("x3p-2000 (binary)", "float32"))
+
+    assert dialog.version == "x3p-2000 (binary)"
+    assert dialog.data_type is x3pio.DataType.FLOAT32
+
+
+def test_save_as_writes_x3p_from_sdf_and_sdf_from_x3p(ramp_path: Path, tmp_path: Path) -> None:
+    window = MainWindow()
+    _load(window, ramp_path)
+    target = tmp_path / "converted.x3p"
+    window._exporter.write_export(
+        sdfio.read(ramp_path),
+        str(target),
+        x3pio.X3pDialect.ISO5436_2000,
+        x3pio.DataType.INT16,
+        x3pio.DataStorage.XML,
+    )
+    loaded = x3pio.read(target)
+
+    assert loaded.header.dialect is x3pio.X3pDialect.ISO5436_2000
+    assert loaded.header.z.data_type is x3pio.DataType.INT16
+    assert loaded.storage is x3pio.DataStorage.XML
+    np.testing.assert_allclose(loaded.surface, make_ramp(), atol=1e-9, equal_nan=True)
+
+    back = tmp_path / "back.sdf"
+    window._exporter.write_export(
+        loaded,
+        str(back),
+        sdfio.SdfDialect.ISO_2_0,
+        sdfio.DataType.BINARY64,
+        sdfio.FileFormat.BINARY,
+    )
+    np.testing.assert_allclose(sdfio.read(back).data, make_ramp(), atol=1e-9, equal_nan=True)
+    window.close()
+
+
+def test_save_as_reports_a_point_cloud_that_cannot_be_an_sdf_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    messages: list[tuple[object, ...]] = []
+    monkeypatch.setattr(QMessageBox, "critical", lambda *args: messages.append(args))
+    window = MainWindow()
+    window._exporter.write_export(
+        x3pio.X3pFile.from_points(make_cloud()),
+        str(tmp_path / "cloud.sdf"),
+        sdfio.SdfDialect.ISO_2_0,
+        sdfio.DataType.BINARY64,
+        sdfio.FileFormat.BINARY,
+    )
+
+    assert len(messages) == 1
+    assert not (tmp_path / "cloud.sdf").exists()
+    window.close()
