@@ -58,7 +58,7 @@ def main() -> int:
     window._loader.loaded.connect(lambda *_: loop.quit())
     window.load_file(str(SAMPLE))
     loop.exec()
-    window._z_bar._auto.click()  # files open at true scale, which shows the lenses too flat
+    window._z_bar._auto.trigger()  # files open at true scale, which shows the lenses too flat
     window._zoom_in_action.trigger()
     settle(loop)  # let the GL view draw the loaded surface
     window.statusBar().clearMessage()

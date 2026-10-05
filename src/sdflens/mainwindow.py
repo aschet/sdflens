@@ -169,27 +169,38 @@ class MainWindow(QMainWindow):
             ]
         )
         self._save_as_action.triggered.connect(self._save_as)
-        self._screenshot_action = self._action(self.tr("&Save..."), "screenshot", "Ctrl+Alt+S")
-        self._describe(self._screenshot_action, self.tr("Save screenshot"))
+        self._screenshot_action = self._action(
+            self.tr("&Save..."),
+            "screenshot",
+            self.tr("Ctrl+Alt+S", "shortcut"),
+            self.tr("Save screenshot"),
+        )
         self._screenshot_action.triggered.connect(self._save_screenshot)
         self._copy_screenshot_action = self._action(
-            self.tr("&Copy"), "copy", QKeySequence.StandardKey.Copy
+            self.tr("&Copy"), "copy", QKeySequence.StandardKey.Copy, self.tr("Copy screenshot")
         )
-        self._describe(self._copy_screenshot_action, self.tr("Copy screenshot"))
         self._copy_screenshot_action.triggered.connect(self._copy_screenshot)
-        self._export_action = self._action(self.tr("&Export..."), "export", "Ctrl+E")
-        self._describe(self._export_action, self.tr("Export information"))
+        self._export_action = self._action(
+            self.tr("&Export..."),
+            "export",
+            self.tr("Ctrl+E", "shortcut"),
+            self.tr("Export information"),
+        )
         self._export_action.triggered.connect(self._export_metadata)
-        self._copy_metadata_action = self._action(self.tr("&Copy"), "copy", "Ctrl+Shift+C")
-        self._describe(self._copy_metadata_action, self.tr("Copy information"))
+        self._copy_metadata_action = self._action(
+            self.tr("&Copy"),
+            "copy",
+            self.tr("Ctrl+Shift+C", "shortcut"),
+            self.tr("Copy information"),
+        )
         self._copy_metadata_action.triggered.connect(self._copy_metadata)
         self._quit_action = self._action(self.tr("E&xit"), None, QKeySequence.StandardKey.Quit)
         if not self._quit_action.shortcuts():
             # Qt defines no standard quit key on Windows; Alt+F4 is its convention.
-            self._quit_action.setShortcut(QKeySequence("Alt+F4"))
+            self._quit_action.setShortcut(QKeySequence(self.tr("Alt+F4", "shortcut")))
         self._quit_action.triggered.connect(self.close)
 
-        self._home_action = self._action(self.tr("&Home"), "home", "Home")
+        self._home_action = self._action(self.tr("&Home"), "home", self.tr("Home", "shortcut"))
         self._home_action.triggered.connect(lambda: self._current().home())
         self._zoom_in_action = self._action(
             self.tr("Zoom &in"), "zoom-in", QKeySequence.StandardKey.ZoomIn
@@ -202,21 +213,29 @@ class MainWindow(QMainWindow):
 
         tools = QActionGroup(self)
         self._rotate_action = self._tool_action(
-            tools, self.tr("&Rotate"), "rotate", "R", Tool.ROTATE
+            tools, self.tr("&Rotate"), "rotate", self.tr("R", "shortcut"), Tool.ROTATE
         )
-        self._pan_action = self._tool_action(tools, self.tr("&Pan"), "pan", "P", Tool.PAN)
-        self._zoom_action = self._tool_action(tools, self.tr("&Zoom"), "zoom", "Z", Tool.ZOOM)
+        self._pan_action = self._tool_action(
+            tools, self.tr("&Pan"), "pan", self.tr("P", "shortcut"), Tool.PAN
+        )
+        self._zoom_action = self._tool_action(
+            tools, self.tr("&Zoom"), "zoom", self.tr("Z", "shortcut"), Tool.ZOOM
+        )
         self._rotate_action.setChecked(True)
 
         modes = QActionGroup(self)
         self._view_3d_action = self._mode_action(
-            modes, self.tr("&3D view"), "view-3d", "Ctrl+3", _VIEW_3D
+            modes, self.tr("&3D view"), "view-3d", self.tr("Ctrl+3", "shortcut"), _VIEW_3D
         )
         self._view_2d_action = self._mode_action(
-            modes, self.tr("&2D view"), "view-2d", "Ctrl+2", _VIEW_2D
+            modes, self.tr("&2D view"), "view-2d", self.tr("Ctrl+2", "shortcut"), _VIEW_2D
         )
         self._view_profile_action = self._mode_action(
-            modes, self.tr("&Profile view"), "view-profile", "Ctrl+1", _VIEW_PROFILE
+            modes,
+            self.tr("&Profile view"),
+            "view-profile",
+            self.tr("Ctrl+1", "shortcut"),
+            _VIEW_PROFILE,
         )
 
         self._render_mode = RenderMode.SURFACE
@@ -227,13 +246,15 @@ class MainWindow(QMainWindow):
             (RenderMode.WIREFRAME, self.tr("&Wireframe")),
             (RenderMode.POINTS, self.tr("&Points")),
         ):
-            action = QAction(text, self)
+            action = self._action(text, None)
             action.setCheckable(True)
             render_modes.addAction(action)
             action.triggered.connect(lambda _checked=False, m=mode: self._set_render_mode(m))
             self._render_actions[mode] = action
 
-        self._reverse_action = self._action(self.tr("Reverse &colormap"), "reverse", "Ctrl+R")
+        self._reverse_action = self._action(
+            self.tr("Reverse &colormap"), "reverse", self.tr("Ctrl+R", "shortcut")
+        )
         self._reverse_action.setCheckable(True)
         self._reverse_action.toggled.connect(self._apply_colormap)
         self._about_action = self._action(
@@ -247,13 +268,21 @@ class MainWindow(QMainWindow):
         self._colormap_combo.currentTextChanged.connect(self._apply_colormap)
 
     def _action(
-        self, text: str, icon: str | None, shortcut: str | QKeySequence.StandardKey
+        self,
+        text: str,
+        icon: str | None,
+        shortcut: str | QKeySequence.StandardKey | None = None,
+        tooltip: str | None = None,
     ) -> QAction:
+        """Create an action; its tooltip is ``tooltip`` (default: the text) plus the shortcut."""
         action = QAction(load_icon(icon), text, self) if icon else QAction(text, self)
         if isinstance(shortcut, QKeySequence.StandardKey):
             action.setShortcuts(shortcut)
-        else:
+        elif shortcut:
             action.setShortcut(QKeySequence(shortcut))
+        name = tooltip or action.toolTip()
+        keys = action.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
+        action.setToolTip(f"{name} ({keys})" if keys else name)
         return action
 
     def _tool_action(
@@ -273,11 +302,6 @@ class MainWindow(QMainWindow):
         group.addAction(action)
         action.triggered.connect(lambda: self._set_view_mode(mode))
         return action
-
-    def _describe(self, action: QAction, text: str) -> None:
-        """Set a tooltip naming the whole operation, since the menu text is only its verb."""
-        shortcut = action.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
-        action.setToolTip(f"{text} ({shortcut})" if shortcut else text)
 
     def _action_button(self, action: QAction, parent: QWidget) -> QPushButton:
         button = QPushButton(action.icon(), action.iconText(), parent)
@@ -311,7 +335,7 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._info_dock)
         self._info_toggle_action = self._info_dock.toggleViewAction()
         self._info_toggle_action.setText(self.tr("In&formation"))
-        self._info_toggle_action.setShortcut(QKeySequence("Ctrl+I"))
+        self._info_toggle_action.setShortcut(QKeySequence(self.tr("Ctrl+I", "shortcut")))
 
     def _create_menus(self) -> None:
         file_menu = self.menuBar().addMenu(self.tr("&File"))

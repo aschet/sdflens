@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 import sdfio
 from PySide6.QtCore import QDir, QEventLoop, QPoint, QPointF, QSize, QStandardPaths, Qt, QTimer
-from PySide6.QtGui import QGuiApplication, QIcon, QImage, QPalette
+from PySide6.QtGui import QGuiApplication, QIcon, QImage, QKeySequence, QPalette
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
@@ -361,6 +361,18 @@ def test_main_window_loads_file_and_switches_views(ramp_path: Path) -> None:
     assert window._surface_view._tool is Tool.ROTATE
 
 
+def test_toolbar_tooltips_name_the_action_and_its_shortcut() -> None:
+    window = MainWindow()
+    for toolbar in window.findChildren(QToolBar):
+        for action in toolbar.actions():
+            shortcut = action.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
+            if shortcut:
+                assert action.toolTip().endswith(f"({shortcut})"), action.text()
+    assert window._open_action.toolTip().startswith("Open (")
+    assert window._screenshot_action.toolTip().startswith("Save screenshot (")
+    window.close()
+
+
 def test_information_dock_shows_the_header_and_can_be_toggled(ramp_path: Path) -> None:
     window = MainWindow()
     window.show()
@@ -535,7 +547,7 @@ def test_a_loaded_file_starts_at_true_scale_until_auto_is_requested(ramp_path: P
 
     assert window._z_bar.factor == 1.0
     assert window._model is not None
-    window._z_bar._auto.click()
+    window._z_bar._auto.trigger()
     assert window._z_bar.factor == pytest.approx(window._model.auto_z_factor())
     assert window._z_bar.factor > 1.0
 

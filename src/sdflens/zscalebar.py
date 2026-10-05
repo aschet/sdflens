@@ -7,13 +7,13 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtGui import QAction
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QSizePolicy,
     QSlider,
     QToolBar,
-    QToolButton,
     QWidget,
 )
 
@@ -65,20 +65,20 @@ class ZScaleBar(QToolBar):
         self._spin.setSuffix(" \u00d7")
         self._spin.setStepType(QDoubleSpinBox.StepType.AdaptiveDecimalStepType)
         self._spin.valueChanged.connect(self._on_user)
-        self._auto = QToolButton(self)
-        self._auto.setText(self.tr("Auto"))
+        self._auto = QAction(self.tr("Auto"), self)
         self._auto.setToolTip(
             self.tr(
                 "Fit the typical height to {percent}% of the extent, at most {limit}\u00d7"
             ).format(percent=round(AUTO_HEIGHT_FRACTION * 100), limit=round(AUTO_Z_FACTOR_MAX))
         )
-        self._auto.clicked.connect(self.auto_requested)
-        true_scale = QToolButton(self)
-        true_scale.setText("1\u00d7")
+        self._auto.triggered.connect(self.auto_requested)
+        true_scale = QAction("1\u00d7", self)
         true_scale.setToolTip(self.tr("True metric scale"))
-        true_scale.clicked.connect(lambda: self.set_factor(1.0))
-        for widget in (self._icon, self._slider, self._spin, self._auto, true_scale):
+        true_scale.triggered.connect(lambda: self.set_factor(1.0))
+        for widget in (self._icon, self._slider, self._spin):
             self.addWidget(widget)
+        self.addAction(self._auto)
+        self.addAction(true_scale)
 
     def changeEvent(self, event: QEvent) -> None:
         """Recolor the icon when the palette changes."""
