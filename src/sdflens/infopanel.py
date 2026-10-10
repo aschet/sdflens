@@ -10,13 +10,15 @@ from datetime import datetime
 from typing import cast
 
 import x3pio
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractScrollArea,
     QHeaderView,
     QLabel,
     QListWidget,
+    QListWidgetItem,
+    QMenu,
     QPlainTextEdit,
     QSizePolicy,
     QTableWidget,
@@ -26,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 from sdfio import SdfFile
 
+from .icons import load_icon
 from .surfacefile import SurfaceFile
 
 __all__ = [
@@ -163,11 +166,11 @@ def format_metadata(file: SurfaceFile) -> str:
 class InfoPanel(QWidget):
     """Read-only table of the header fields with the trailer or the vendor extensions below.
 
-    ``extension_activated(name)`` is emitted when a vendor extension is double-clicked; ``name``
-    is its ID, or its path for the standard before the amendment.
+    ``extension_save_requested(name)`` is emitted when "Save as" is chosen in the context menu of a
+    vendor extension; ``name`` is its ID, or its path for ISO 25178-72:2017.
     """
 
-    extension_activated = Signal(str)
+    extension_save_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Create an empty panel."""
@@ -189,10 +192,8 @@ class InfoPanel(QWidget):
         self._trailer_label = QLabel(self.tr("Trailer"), self)
         self.extensions = QListWidget(self)
         self.extensions.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.extensions.setToolTip(self.tr("Double-click to save the file of an extension"))
-        self.extensions.itemDoubleClicked.connect(
-            lambda item: self.extension_activated.emit(item.text())
-        )
+        self.extensions.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.extensions.customContextMenuRequested.connect(self._show_extension_menu)
         self._extensions_label = QLabel(self.tr("Vendor extensions"), self)
 
         layout = QVBoxLayout(self)
@@ -232,6 +233,19 @@ class InfoPanel(QWidget):
         self.table.updateGeometry()
         stretch = 0 if fixed else 2
         cast(QVBoxLayout, self.layout()).setStretchFactor(self.table, stretch)
+
+    def extension_menu(self, item: QListWidgetItem) -> QMenu:
+        """Return the context menu of the vendor extension ``item``."""
+        menu = QMenu(self)
+        menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        save = menu.addAction(load_icon("save-as"), self.tr("Save &as..."))
+        save.triggered.connect(lambda: self.extension_save_requested.emit(item.text()))
+        return menu
+
+    def _show_extension_menu(self, position: QPoint) -> None:
+        item = self.extensions.itemAt(position) or self.extensions.currentItem()
+        if item is not None:
+            self.extension_menu(item).popup(self.extensions.viewport().mapToGlobal(position))
 
     def _show_extensions(self, extensions: bool) -> None:
         self._trailer_label.setVisible(not extensions)

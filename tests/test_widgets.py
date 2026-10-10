@@ -455,7 +455,7 @@ def test_export_and_copy_of_an_x3p_file_act_on_the_information(
     window.close()
 
 
-def test_double_click_on_a_vendor_extension_saves_its_file(
+def test_the_context_menu_of_a_vendor_extension_saves_its_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = tmp_path / "surface.x3p"
@@ -474,9 +474,11 @@ def test_double_click_on_a_vendor_extension_saves_its_file(
     item = extensions.item(0)
     assert item is not None
     assert extensions.selectionMode() is QAbstractItemView.SelectionMode.SingleSelection
-    extensions.setCurrentItem(item)  # a click selects the entry, to show that it is clickable
-    assert extensions.selectedItems() == [item]
-    extensions.itemDoubleClicked.emit(item)
+    assert extensions.contextMenuPolicy() is Qt.ContextMenuPolicy.CustomContextMenu
+    assert not extensions.toolTip()
+    actions = window._info_panel.extension_menu(item).actions()
+    assert [action.text() for action in actions] == ["Save &as..."]
+    actions[0].trigger()
 
     assert asked == ["a.xml"]  # the last part of the ID
     assert target.read_bytes() == b"<a/>"
@@ -484,8 +486,27 @@ def test_double_click_on_a_vendor_extension_saves_its_file(
     target.unlink()
     asked.clear()
     monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args: ("", ""))
-    extensions.itemDoubleClicked.emit(item)  # cancelling the dialog writes nothing
+    window._info_panel.extension_menu(item).actions()[0].trigger()  # cancelling writes nothing
     assert not target.exists()
+    window.close()
+
+
+def test_a_right_click_on_a_vendor_extension_shows_the_menu_with_save_as(tmp_path: Path) -> None:
+    path = tmp_path / "surface.x3p"
+    make_x3p().save(path)
+    window = MainWindow()
+    _load(window, path)
+    extensions = window._info_panel.extensions
+    item = extensions.item(0)
+    assert item is not None
+
+    extensions.customContextMenuRequested.emit(extensions.visualItemRect(item).center())
+
+    menu = QApplication.activePopupWidget()
+    assert isinstance(menu, QMenu)
+    assert [action.text() for action in menu.actions()] == ["Save &as..."]
+    assert not menu.actions()[0].icon().isNull()  # the icon of the Save as action of the window
+    menu.close()
     window.close()
 
 

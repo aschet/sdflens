@@ -352,7 +352,7 @@ class MainWindow(QMainWindow):
         for action in (self._export_action, self._copy_metadata_action):
             buttons.addWidget(self._action_button(action, info))
         buttons.addStretch(1)
-        self._info_panel.extension_activated.connect(self._save_extension)
+        self._info_panel.extension_save_requested.connect(self._save_extension)
         info_layout.addWidget(self._info_panel, 1)
         info_layout.addLayout(buttons)
 
