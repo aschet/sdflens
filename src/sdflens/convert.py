@@ -231,11 +231,13 @@ def convert_file(
     dialect: SdfDialect | x3pio.Revision,
     data_type: DataType | x3pio.DataType,
     layer: int = 0,
+    single_layer: bool = False,
 ) -> SdfFile | x3pio.X3pFile:
     """Return ``file`` converted to the format of ``dialect``, ready to save.
 
     An SDF file holds one grid, so of several layers the one asked for, counted from 0, is saved
-    as SDF. An x3p file keeps all its layers.
+    as SDF. An x3p file keeps all its layers, or with ``single_layer`` only that one, with the
+    metadata and the vendor extensions of the file.
 
     :raises SdfFormatError: If an SDF file cannot be made of the data, or encode it.
     :raises X3pFormatError: If an x3p file cannot encode the data.
@@ -246,5 +248,7 @@ def convert_file(
         return convert_for_export(sdf, dialect, data_type)
     if isinstance(dialect, x3pio.Revision) and isinstance(data_type, x3pio.DataType):
         x3p = sdf_to_x3p(file) if isinstance(file, SdfFile) else file
+        if single_layer and len(x3p.layers) > 1:
+            x3p = x3p.with_layers([x3p.layers[layer]])
         return convert_x3p_for_export(x3p, dialect, data_type)
     raise TypeError("The data type does not belong to the format of the dialect")

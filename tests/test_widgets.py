@@ -1043,6 +1043,30 @@ def test_save_as_asks_for_the_file_first_with_a_filter_for_each_format(
     window.close()
 
 
+def test_save_as_saves_the_layer_that_is_shown_when_the_dialog_asks_for_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    window = MainWindow()
+    _load(window, _layered_path(tmp_path, make_ramp(), 10.0 * make_ramp(), 100.0 * make_ramp()))
+    _choose_layer(window, 3)
+    answers = [False, True]  # the first save keeps all layers, the second only the one shown
+
+    def exec_options(self: SaveOptionsDialog) -> QDialog.DialogCode:
+        self._single_layer.setChecked(answers.pop(0))
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(SaveOptionsDialog, "exec", exec_options)
+    for name in ("all", "one"):
+        _fake_file_dialog(monkeypatch, tmp_path / name, "x3p file (*.x3p)")
+        window._save_as()
+
+    assert len(x3pio.read(tmp_path / "all.x3p").layers) == 3
+    chosen = x3pio.read(tmp_path / "one.x3p")
+    assert len(chosen.layers) == 1
+    np.testing.assert_allclose(chosen.layer.z, 100.0 * make_ramp(), atol=1e-7, equal_nan=True)
+    window.close()
+
+
 def test_save_as_of_an_x3p_file_still_starts_with_the_sdf_type(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1210,6 +1234,43 @@ def test_an_irregular_surface_is_drawn_as_a_surface_in_3d_only(tmp_path: Path) -
     assert window._surface_view._mesh.is_cloud
     assert not window._render_menu.isEnabled()
     assert window._stats_label.text().endswith("200 points")
+    window.close()
+
+
+def test_the_save_dialog_offers_a_single_layer_for_an_x3p_file_of_layers_only() -> None:
+    layers = np.stack([make_ramp(), make_ramp() + 1.0, make_ramp() + 2.0])
+    layered = x3pio.Surface.from_array(layers, x_scale=1e-6, y_scale=2e-6)
+
+    dialog = SaveOptionsDialog(layered, is_x3p=True, layer=1)
+    assert dialog._single_layer.isVisibleTo(dialog)
+    assert dialog._single_layer.text() == "Save only layer 2 of 3"
+    assert not dialog.single_layer  # everything is saved unless it is asked for
+    dialog._single_layer.setChecked(True)
+    assert dialog.single_layer
+
+    assert not SaveOptionsDialog(layered, is_x3p=False)._single_layer.isVisibleTo(dialog)  # SDF
+    assert not SaveOptionsDialog(make_x3p(), is_x3p=True)._single_layer.isVisibleTo(dialog)
+    assert not SaveOptionsDialog(make_sdf(make_ramp()), is_x3p=True)._single_layer.isVisibleTo(
+        dialog
+    )
+
+
+def test_an_x3p_file_is_saved_with_all_layers_or_with_the_chosen_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layers = np.stack([make_ramp(), 10.0 * make_ramp()])
+    layered = x3pio.Surface.from_array(layers, x_scale=1e-6, y_scale=2e-6)
+    window = MainWindow()
+    export = window._exporter.write_export
+    args = (x3pio.Revision.ISO25178_72_2017_DAM1, x3pio.DataType.FLOAT64, x3pio.DataStorage.BINARY)
+
+    export(layered, str(tmp_path / "all.x3p"), *args, 1)
+    export(layered, str(tmp_path / "one.x3p"), *args, 1, True)
+
+    assert len(x3pio.read(tmp_path / "all.x3p").layers) == 2
+    chosen = x3pio.read(tmp_path / "one.x3p")
+    assert len(chosen.layers) == 1
+    np.testing.assert_allclose(chosen.layer.z, 10.0 * make_ramp(), atol=1e-8, equal_nan=True)
     window.close()
 
 

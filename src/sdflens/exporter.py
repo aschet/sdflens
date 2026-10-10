@@ -114,7 +114,15 @@ class Exporter(QObject):
             settings.save_sdf_version = dialog.version_name
             settings.save_sdf_encoding = dialog.encoding_name
             settings.save_sdf_data_type = dialog.data_type_name
-        self.write_export(file, path, dialog.dialect, dialog.data_type, dialog.file_format, layer)
+        self.write_export(
+            file,
+            path,
+            dialog.dialect,
+            dialog.data_type,
+            dialog.file_format,
+            layer,
+            dialog.single_layer,
+        )
 
     def write_export(
         self,
@@ -124,16 +132,18 @@ class Exporter(QObject):
         data_type: sdfio.DataType | x3pio.DataType,
         file_format: sdfio.FileFormat | x3pio.DataStorage,
         layer: int = 0,
+        single_layer: bool = False,
     ) -> None:
         """Save ``file`` to ``path`` converted to the given version, data type and format.
 
-        ``layer`` is the layer that is saved as an SDF file, counted from 0.
+        ``layer``, counted from 0, is the layer that is saved as an SDF file, and as an x3p file
+        if ``single_layer`` says to save that one only.
         """
         QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
         error: Exception | None = None
         dropped = False
         try:
-            converted = convert_file(file, dialect, data_type, layer)
+            converted = convert_file(file, dialect, data_type, layer, single_layer)
             if isinstance(converted, sdfio.SdfFile):
                 converted.save(path, format=cast(sdfio.FileFormat, file_format))
             else:

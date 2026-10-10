@@ -183,6 +183,35 @@ def test_the_chosen_layer_of_an_x3p_is_saved_as_sdf() -> None:
     np.testing.assert_allclose(converted.data, make_ramp() + 1.0, equal_nan=True)
 
 
+def test_an_x3p_can_be_saved_with_only_the_chosen_layer() -> None:
+    layers = np.stack([make_ramp(), make_ramp() + 1.0, make_ramp() + 2.0])
+    x3p = x3pio.Surface.from_array(layers, x_scale=1e-6, y_scale=2e-6).with_metadata(
+        creator="Jane Doe"
+    )
+    x3p.extensions.add("http://www.vendor.com", "a.xml", b"<a/>")
+    converted = convert_file(
+        x3p, x3pio.Revision.ISO25178_72_2017_DAM1, x3pio.DataType.FLOAT64, 1, single_layer=True
+    )
+
+    assert isinstance(converted, x3pio.X3pFile)
+    assert len(converted.layers) == 1
+    np.testing.assert_allclose(converted.layer.z, make_ramp() + 1.0, equal_nan=True)
+    assert converted.metadata is not None
+    assert converted.metadata.creator == "Jane Doe"  # what belongs to the file is kept
+    assert list(converted.extensions) == list(x3p.extensions)
+    assert len(x3p.layers) == 3  # the file that is shown is not changed
+
+
+def test_a_file_of_one_layer_is_saved_as_it_is_with_the_single_layer_option() -> None:
+    x3p = make_x3p()
+    converted = convert_file(
+        x3p, x3pio.Revision.ISO5436_2000, x3pio.DataType.FLOAT64, 0, single_layer=True
+    )
+
+    assert isinstance(converted, x3pio.X3pFile)
+    assert len(converted.layers) == 1
+
+
 def test_an_x3p_keeps_all_its_layers_when_it_is_converted() -> None:
     layers = np.stack([make_ramp(), make_ramp() + 1.0])
     x3p = x3pio.Surface.from_array(layers, x_scale=1e-6, y_scale=1e-6)

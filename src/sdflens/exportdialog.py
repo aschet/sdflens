@@ -11,6 +11,7 @@ from typing import cast
 import x3pio
 from PySide6.QtGui import QStandardItemModel
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -91,6 +92,14 @@ class SaveOptionsDialog(QDialog):
             for sdf_type in DataType:
                 self._data_type.addItem(sdf_type.name.lower(), sdf_type)
 
+        # An x3p file keeps all its layers unless the user asks for the one that is shown.
+        layers = len(file.layers) if isinstance(file, x3pio.X3pFile) else 1
+        self._single_layer = QCheckBox(
+            self.tr("Save only layer {number} of {count}").format(number=layer + 1, count=layers),
+            self,
+        )
+        self._single_layer.setVisible(is_x3p and layers > 1)
+
         self._note = QLabel(self)
         self._note.setWordWrap(True)
         self._buttons = QDialogButtonBox(
@@ -103,6 +112,7 @@ class SaveOptionsDialog(QDialog):
         layout.addRow(self.tr("Version:"), self._version)
         layout.addRow(self.tr("Encoding:"), self._encoding)
         layout.addRow(self.tr("Data type:"), self._data_type)
+        layout.addRow(self._single_layer)
         layout.addRow(self._note)
         layout.addRow(self._buttons)
 
@@ -130,6 +140,11 @@ class SaveOptionsDialog(QDialog):
         """The chosen storage type of the heights."""
         data = self._data_type.currentData()
         return x3pio.DataType(data) if self._is_x3p else DataType(data)
+
+    @property
+    def single_layer(self) -> bool:
+        """Whether only the layer that is shown is saved, as an x3p file of layers can be."""
+        return self._single_layer.isVisibleTo(self) and self._single_layer.isChecked()
 
     @property
     def version_name(self) -> str:
