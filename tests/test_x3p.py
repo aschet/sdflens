@@ -153,7 +153,7 @@ def test_irregular_surface_mesh_places_vertices_at_the_stored_positions() -> Non
 def test_irregular_layers_are_chosen_one_by_one() -> None:
     first = make_ramp()
     layers = [_irregular(first), _irregular(10.0 * first)]
-    points = np.stack([layer.layer.points() for layer in layers])
+    points = np.stack([layer.layers[0].points() for layer in layers])
     x3p = x3pio.Surface.from_points(points)
 
     assert layer_count(x3p) == 2

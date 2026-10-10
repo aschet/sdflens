@@ -1063,7 +1063,7 @@ def test_save_as_saves_the_layer_that_is_shown_when_the_dialog_asks_for_it(
     assert len(x3pio.read(tmp_path / "all.x3p").layers) == 3
     chosen = x3pio.read(tmp_path / "one.x3p")
     assert len(chosen.layers) == 1
-    np.testing.assert_allclose(chosen.layer.z, 100.0 * make_ramp(), atol=1e-7, equal_nan=True)
+    np.testing.assert_allclose(chosen.layers[0].z, 100.0 * make_ramp(), atol=1e-7, equal_nan=True)
     window.close()
 
 
@@ -1176,7 +1176,7 @@ def test_save_as_writes_x3p_from_sdf_and_sdf_from_x3p(ramp_path: Path, tmp_path:
     assert loaded.revision is x3pio.Revision.ISO5436_2000
     assert loaded.header.z.data_type is x3pio.DataType.INT16
     assert loaded.storage is x3pio.DataStorage.XML
-    np.testing.assert_allclose(loaded.layer.z, make_ramp(), atol=1e-9, equal_nan=True)
+    np.testing.assert_allclose(loaded.layers[0].z, make_ramp(), atol=1e-9, equal_nan=True)
 
     back = tmp_path / "back.sdf"
     window._exporter.write_export(
@@ -1270,7 +1270,7 @@ def test_an_x3p_file_is_saved_with_all_layers_or_with_the_chosen_one(
     assert len(x3pio.read(tmp_path / "all.x3p").layers) == 2
     chosen = x3pio.read(tmp_path / "one.x3p")
     assert len(chosen.layers) == 1
-    np.testing.assert_allclose(chosen.layer.z, 10.0 * make_ramp(), atol=1e-8, equal_nan=True)
+    np.testing.assert_allclose(chosen.layers[0].z, 10.0 * make_ramp(), atol=1e-8, equal_nan=True)
     window.close()
 
 

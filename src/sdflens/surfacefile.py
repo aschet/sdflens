@@ -82,7 +82,7 @@ def build_model(file: SurfaceFile, layer: int = 0) -> SurfaceModel | PointCloudM
         return SurfaceModel.from_grid(
             np.atleast_2d(chosen.z), abs(header.x.increment), abs(header.y.increment)
         )
-    points = chosen.points(frame=x3pio.Frame.VIEW)
+    points = chosen.points(coordinate_system=x3pio.CoordinateSystem.VIEW)
     if isinstance(chosen, x3pio.SurfaceLayer):
         return PointCloudModel.from_grid(points)
     return PointCloudModel.from_points(points.reshape(-1, 3))

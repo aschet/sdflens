@@ -137,7 +137,7 @@ def test_sdf_converts_to_x3p_with_its_scales_and_metadata() -> None:
 
     assert isinstance(x3p, x3pio.Surface)
     assert (x3p.header.x.increment, x3p.header.y.increment) == (1e-6, 2e-6)
-    np.testing.assert_allclose(x3p.layer.z, make_ramp(), equal_nan=True)
+    np.testing.assert_allclose(x3p.layers[0].z, make_ramp(), equal_nan=True)
     assert x3p.metadata is not None
     assert x3p.metadata.instrument.manufacturer == sdf.header.manufacturer_id
     assert x3p.metadata.comment == "a note"
@@ -195,7 +195,7 @@ def test_an_x3p_can_be_saved_with_only_the_chosen_layer() -> None:
 
     assert isinstance(converted, x3pio.X3pFile)
     assert len(converted.layers) == 1
-    np.testing.assert_allclose(converted.layer.z, make_ramp() + 1.0, equal_nan=True)
+    np.testing.assert_allclose(converted.layers[0].z, make_ramp() + 1.0, equal_nan=True)
     assert converted.metadata is not None
     assert converted.metadata.creator == "Jane Doe"  # what belongs to the file is kept
     assert list(converted.extensions) == list(x3p.extensions)
@@ -234,7 +234,7 @@ def test_conversion_to_x3p_round_trips(
 
     assert loaded.revision is dialect
     assert loaded.header.z.data_type is x3pio.DataType.INT32
-    np.testing.assert_allclose(loaded.layer.z, make_ramp(), atol=1e-9, equal_nan=True)
+    np.testing.assert_allclose(loaded.layers[0].z, make_ramp(), atol=1e-9, equal_nan=True)
 
 
 def test_point_cloud_converts_between_x3p_versions_and_types(tmp_path: Path) -> None:
@@ -243,7 +243,7 @@ def test_point_cloud_converts_between_x3p_versions_and_types(tmp_path: Path) -> 
     assert isinstance(converted, x3pio.X3pFile)
     converted.save(tmp_path / "cloud.x3p", storage=x3pio.DataStorage.XML)
 
-    assert x3pio.read(tmp_path / "cloud.x3p").layer.z.shape == (200,)
+    assert x3pio.read(tmp_path / "cloud.x3p").layers[0].z.shape == (200,)
 
 
 def test_vendor_extensions_are_kept_when_they_fit_and_dropped_when_not() -> None:
