@@ -5,7 +5,8 @@
 
 # Builds the standalone Linux app (build/dist/sdflens) and an AppDir (build/AppDir) around it,
 # and, when appimagetool is found (in PATH or named by $APPIMAGETOOL), the AppImage
-# build/appimage/sdflens-<version>-<arch>.AppImage.
+# build/appimage/sdflens-<version>-<arch>.AppImage, next to its SBOM, which has the same name with
+# .cdx.json instead of .AppImage.
 #
 # Run it from the repository root with the packaging dependencies installed in the active Python:
 #   uv pip install -r pylock.build.toml   (or the same with pip), then
@@ -42,4 +43,4 @@ version="$(python -c 'import sdflens; print(sdflens.__version__)')"
 arch="$(uname -m)"
 mkdir -p build/appimage
 ARCH="$arch" "$tool" build/AppDir "build/appimage/sdflens-$version-$arch.AppImage"
-cp build/sdflens.cdx.json "build/appimage/sdflens-$version-linux.cdx.json"
+cp build/sdflens.cdx.json "build/appimage/sdflens-$version-$arch.cdx.json"

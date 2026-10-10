@@ -3,8 +3,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # Builds the standalone Windows app (build\dist\sdflens) and, when the .NET SDK is installed,
-# the installer (build\installer\sdflens-<version>.msi) with WiX, next to a CycloneDX SBOM of the
-# runtime dependencies (build\installer\sdflens-<version>.cdx.json).
+# the installer (build\installer\sdflens-<version>-<arch>.msi) with WiX, next to a CycloneDX SBOM of
+# the runtime dependencies (build\installer\sdflens-<version>-<arch>.cdx.json). The architecture is
+# x64 or arm64, that of the machine that builds.
 # Run from the project root inside the activated virtual environment:
 #   .\packaging\build_windows.ps1
 
@@ -44,6 +45,11 @@ if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
 }
 
 $version = python -c "import sdflens; print(sdflens.__version__)"
+$arch = switch ($env:PROCESSOR_ARCHITECTURE) {
+    "AMD64" { "x64" }
+    "ARM64" { "arm64" }
+    default { throw "Unsupported processor architecture $env:PROCESSOR_ARCHITECTURE" }
+}
 dotnet tool restore
 if ($LASTEXITCODE -ne 0) { throw "dotnet tool restore failed" }
 if (-not (dotnet wix extension list -g | Select-String "WixToolset.UI.wixext")) {
@@ -56,8 +62,8 @@ Set-Content build\LICENSE.rtf (ConvertTo-Rtf $license) -Encoding ascii
 New-Item -ItemType Directory -Force build\installer | Out-Null
 # WiX resolves relative paths against the .wxs file, so pass absolute ones.
 $build = (Resolve-Path build).Path
-dotnet wix build packaging\installer.wxs -arch x64 -ext WixToolset.UI.wixext `
+dotnet wix build packaging\installer.wxs -arch $arch -ext WixToolset.UI.wixext `
     -d Version=$version -d AppDir=$build\dist\sdflens -d BuildDir=$build `
-    -o "build\installer\sdflens-$version.msi"
+    -o "build\installer\sdflens-$version-$arch.msi"
 if ($LASTEXITCODE -ne 0) { throw "WiX failed" }
-Copy-Item build\sdflens.cdx.json "build\installer\sdflens-$version.cdx.json"
+Copy-Item build\sdflens.cdx.json "build\installer\sdflens-$version-$arch.cdx.json"

@@ -45,8 +45,8 @@ sdflens
 
 With the virtual environment activated and the [.NET SDK](https://dotnet.microsoft.com/download)
 installed, this builds a standalone app and the [WiX](https://wixtoolset.org/) installer
-`build\installer\sdflens-<version>.msi`, next to a [CycloneDX](https://cyclonedx.org/) SBOM of the
-runtime dependencies, `build\installer\sdflens-<version>.cdx.json`:
+`build\installer\sdflens-<version>-<arch>.msi`, next to a [CycloneDX](https://cyclonedx.org/) SBOM of the
+runtime dependencies, `build\installer\sdflens-<version>-<arch>.cdx.json`, with `<arch>` being `x64` or `arm64`:
 
 ```powershell
 .\packaging\build_windows.ps1
