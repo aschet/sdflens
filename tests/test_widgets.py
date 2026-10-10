@@ -58,8 +58,10 @@ from sdflens.infopanel import format_metadata, metadata_rows
 from sdflens.loader import Loader
 from sdflens.mainwindow import MainWindow
 from sdflens.mesh import SurfaceMesh
+from sdflens.pick import project
 from sdflens.profileview import ProfileView, connect, envelope
 from sdflens.surface import SurfaceModel
+from sdflens.units import format_length
 from sdflens.zscalebar import ZScaleBar
 
 pytestmark = pytest.mark.usefixtures("qapp")
@@ -753,6 +755,45 @@ def test_clicking_a_gizmo_axis_aligns_the_view_to_it() -> None:
         QTest.mouseClick(view, Qt.MouseButton.LeftButton, pos=view._gizmo_tips()[axis].toPoint())
         assert view._camera.azimuth == pytest.approx(azimuth)
         assert view._camera.elevation == pytest.approx(elevation)
+
+
+def test_clicking_the_surface_reports_the_point_and_clicking_elsewhere_clears_it() -> None:
+    model = SurfaceModel.from_sdf(make_sdf(make_ramp(), x_scale=1e-6, y_scale=2e-6))
+    mesh = SurfaceMesh.from_model(model)
+    view = SurfaceView()
+    view.resize(400, 300)
+    view.set_surface(model, mesh)
+    texts: list[str] = []
+    view.picked.connect(texts.append)
+    index = 2 * COLS + 3
+    camera_view, proj = view._camera.matrices(400 / 300)
+    screen, _ = project(mesh.vertices[index : index + 1], camera_view, proj, 1.0, 400.0, 300.0)
+    spot = QPoint(round(float(screen[0, 0])), round(float(screen[0, 1])))
+
+    QTest.mouseClick(view, Qt.MouseButton.LeftButton, pos=spot)
+    assert view._picked == index
+    assert len(texts) == 1
+    z = format_length(float(make_ramp()[2, 3]))
+    assert texts == [f"x = {format_length(3e-6)}, y = {format_length(4e-6)}, z = {z}"]
+    QTest.mouseClick(view, Qt.MouseButton.LeftButton, pos=QPoint(390, 10))  # the background
+    assert view._picked is None
+    assert texts[-1] == ""
+
+
+def test_dragging_the_3d_view_does_not_pick() -> None:
+    model = SurfaceModel.from_sdf(make_sdf(make_ramp(), x_scale=1e-6, y_scale=2e-6))
+    view = SurfaceView()
+    view.resize(400, 300)
+    view.set_surface(model, SurfaceMesh.from_model(model))
+    texts: list[str] = []
+    view.picked.connect(texts.append)
+
+    QTest.mousePress(view, Qt.MouseButton.LeftButton, pos=QPoint(200, 150))
+    QTest.mouseMove(view, QPoint(230, 160))
+    QTest.mouseRelease(view, Qt.MouseButton.LeftButton, pos=QPoint(230, 160))
+
+    assert texts == []
+    assert view._picked is None
 
 
 def test_render_mode_is_exclusive_stored_and_only_for_the_3d_view() -> None:

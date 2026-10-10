@@ -103,6 +103,7 @@ class MainWindow(QMainWindow):
         self._exporter = Exporter(self, self._settings)
         self._exporter.message.connect(self.statusBar().showMessage)
         self._heatmap_view.hovered.connect(self._on_hovered)
+        self._surface_view.picked.connect(self._on_hovered)
         self._profile_view.hovered.connect(self._on_hovered)
         self._profile_view.save_requested.connect(self._save_profile)
 

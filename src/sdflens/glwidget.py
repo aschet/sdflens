@@ -11,7 +11,7 @@ from enum import StrEnum
 
 import numpy as np
 from numpy.typing import NDArray
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -36,7 +36,9 @@ from shiboken6 import VoidPtr
 
 from .camera import Camera, Tool
 from .mesh import SurfaceMesh
+from .pick import pick, project
 from .surface import Model3D
+from .units import format_length
 from .zscale import clamp_z_factor
 
 __all__ = ["RenderMode", "SurfaceView"]
@@ -55,6 +57,10 @@ _ZOOM_STEP = 1.2
 _POINT_SIZE = 3.0  # device-independent pixels
 _GIZMO_LENGTH = 30.0
 _GIZMO_HIT_RADIUS = 12.0
+_CLICK_DISTANCE = 4.0  # pixels a press may move and still be a click
+_PICK_RADIUS = 6.0  # pixels around a click within which a point is picked
+_MARKER_RADIUS = 4.5
+_PICK_COLOR = QColor(230, 120, 20)
 _GIZMO_AXES = (
     ("x", "X", QColor(230, 90, 90)),
     ("y", "Y", QColor(110, 210, 110)),
@@ -122,7 +128,13 @@ void main() {
 
 
 class SurfaceView(QOpenGLWidget):
-    """3D surface view; left drag runs the active tool, middle drag pans, right drag zooms."""
+    """3D surface view; left drag runs the active tool, middle drag pans, right drag zooms.
+
+    A click on the surface picks the nearest measured point and reports its position.
+    """
+
+    #: The position of the picked point as text, empty when a click picks nothing.
+    picked = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Create an empty view."""
@@ -141,6 +153,8 @@ class SurfaceView(QOpenGLWidget):
         self._draw_count = 0
         self._last_pos = QPointF()
         self._drag_tool: Tool | None = None
+        self._press_pos: QPointF | None = None
+        self._picked: int | None = None
         self._gl: QOpenGLFunctions_3_3_Core | None = None
         self._program: QOpenGLShaderProgram | None = None
         self._uniforms: dict[str, int] = {}
@@ -156,6 +170,7 @@ class SurfaceView(QOpenGLWidget):
         """
         self._model = model
         self._mesh = mesh
+        self._picked = None
         self._geometry_dirty = True
         if keep_view:
             self._camera.set_radius(self._scene_radius())
@@ -259,6 +274,7 @@ class SurfaceView(QOpenGLWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if model is not None:
             self._draw_gizmo(painter)
+            self._draw_picked(painter)
         painter.end()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -271,6 +287,7 @@ class SurfaceView(QOpenGLWidget):
                 self.update()
                 return
             self._drag_tool = self._tool
+            self._press_pos = event.position()
         elif button == Qt.MouseButton.MiddleButton:
             self._drag_tool = Tool.PAN
         elif button == Qt.MouseButton.RightButton:
@@ -300,14 +317,48 @@ class SurfaceView(QOpenGLWidget):
         self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        """End the drag."""
+        """End the drag; a left press that did not move is a click that picks a point."""
+        press = self._press_pos
+        self._press_pos = None
         self._drag_tool = None
+        if press is not None and event.button() == Qt.MouseButton.LeftButton:
+            pos = event.position()
+            if math.hypot(pos.x() - press.x(), pos.y() - press.y()) <= _CLICK_DISTANCE:
+                self._pick(pos)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         """Zoom with the wheel."""
         steps = event.angleDelta().y() / 120.0
         self._camera.zoom(_ZOOM_STEP**steps)
         self.update()
+
+    def _pick(self, pos: QPointF) -> None:
+        """Pick the measured point nearest to ``pos`` and report its position."""
+        mesh = self._mesh
+        if mesh is None:
+            return
+        view, proj = self._camera.matrices(self.width() / max(self.height(), 1))
+        self._picked = pick(
+            mesh.vertices,
+            mesh.valid,
+            mesh.triangles,
+            view,
+            proj,
+            self._z_factor,
+            (pos.x(), pos.y()),
+            (float(self.width()), float(self.height())),
+            _PICK_RADIUS,
+        )
+        self.update()
+        if self._picked is None:
+            self.picked.emit("")
+            return
+        x, y, z = mesh.position(self._picked)
+        self.picked.emit(
+            self.tr("x = {x}, y = {y}, z = {z}").format(
+                x=format_length(x), y=format_length(y), z=format_length(z)
+            )
+        )
 
     def _scene_radius(self) -> float:
         """Bounding radius of the normalized scene including the current z exaggeration."""
@@ -442,6 +493,30 @@ class SurfaceView(QOpenGLWidget):
             dx = (tip.x() - origin.x()) / _GIZMO_LENGTH
             dy = (tip.y() - origin.y()) / _GIZMO_LENGTH
             painter.drawText(QPointF(tip.x() + dx * 8.0 - 4.0, tip.y() + dy * 8.0 + 4.0), label)
+
+    def _draw_picked(self, painter: QPainter) -> None:
+        """Mark the picked point."""
+        mesh = self._mesh
+        if mesh is None or self._picked is None:
+            return
+        view, proj = self._camera.matrices(self.width() / max(self.height(), 1))
+        screen, depth = project(
+            mesh.vertices[self._picked : self._picked + 1],
+            view,
+            proj,
+            self._z_factor,
+            float(self.width()),
+            float(self.height()),
+        )
+        if depth[0] <= 0.0:
+            return
+        painter.setPen(QPen(self.palette().window().color(), 1.5))
+        painter.setBrush(_PICK_COLOR)
+        painter.drawEllipse(
+            QPointF(float(screen[0, 0]), float(screen[0, 1])),
+            _MARKER_RADIUS,
+            _MARKER_RADIUS,
+        )
 
     def release_gl(self) -> None:
         """Free the GL objects while the context is still alive."""

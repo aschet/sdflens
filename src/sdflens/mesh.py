@@ -31,6 +31,7 @@ class SurfaceMesh:
     than :data:`MAX_MESH_POINTS` are thinned out by ``step`` along both axes; ``valid`` matches
     the thinned grid. A point cloud has no triangles or lines and is always drawn as points. An
     irregular surface is a grid like any other, with the positions of its points.
+    ``scale`` and ``origin`` give the position in meters of a vertex.
     """
 
     vertices: NDArray[np.float32]
@@ -39,6 +40,17 @@ class SurfaceMesh:
     valid: NDArray[np.bool_]
     step: int
     is_cloud: bool = False
+    scale: float = 1.0
+    origin: tuple[float, float, float] = (0.0, 0.0, 0.0)
+
+    def position(self, index: int) -> tuple[float, float, float]:
+        """Return the position in meters of vertex ``index``, with the origin of the data."""
+        x, y, z = (float(value) for value in self.vertices[index])
+        return (
+            x * self.scale + self.origin[0],
+            y * self.scale + self.origin[1],
+            z * self.scale + self.origin[2],
+        )
 
     @classmethod
     def from_model(cls, model: SurfaceModel) -> SurfaceMesh:
@@ -68,6 +80,8 @@ class SurfaceMesh:
             lines=_line_indices(valid),
             valid=valid,
             step=step,
+            scale=model.scale,
+            origin=(0.5 * model.extent_x, 0.5 * model.extent_y, model.z_center),
         )
 
     @classmethod
@@ -92,6 +106,8 @@ class SurfaceMesh:
             valid=np.ones(len(points), dtype=np.bool_),
             step=1,
             is_cloud=True,
+            scale=model.scale,
+            origin=(model.center_x, model.center_y, model.z_center),
         )
 
     @classmethod
@@ -118,6 +134,8 @@ class SurfaceMesh:
             lines=_line_indices(valid),
             valid=valid,
             step=step,
+            scale=model.scale,
+            origin=(model.center_x, model.center_y, model.z_center),
         )
 
 
