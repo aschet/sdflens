@@ -534,6 +534,25 @@ def test_the_shown_profile_is_saved_like_a_file(
     ramp_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     window = MainWindow()
+    settings = window._settings
+    try:
+        _save_the_shown_profile(window, ramp_path, tmp_path, monkeypatch)
+    finally:  # the settings are shared by the tests, which expect the choices to be empty
+        for name in (
+            "save_sdf_version",
+            "save_sdf_encoding",
+            "save_sdf_data_type",
+            "save_x3p_version",
+            "save_x3p_encoding",
+            "save_x3p_data_type",
+        ):
+            setattr(settings, name, "")
+    window.close()
+
+
+def _save_the_shown_profile(
+    window: MainWindow, ramp_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _load(window, ramp_path)
     view = window._profile_view
     monkeypatch.setattr(SaveOptionsDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
@@ -560,7 +579,6 @@ def test_the_shown_profile_is_saved_like_a_file(
     assert isinstance(column, x3pio.Profile)
     assert column.layers[0].spacing == 2e-6  # the step along y
     np.testing.assert_allclose(column.layers[0].z, make_ramp()[:, 4], atol=1e-9, equal_nan=True)
-    window.close()
 
 
 def test_export_and_copy_of_an_sdf_file_act_on_the_information(ramp_path: Path) -> None:
