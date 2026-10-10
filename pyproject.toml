@@ -30,7 +30,7 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=1.24",
-    "PySide6>=6.10",
+    "PySide6-Essentials>=6.10",
     "sdfio>=1.4.0",
     "x3pio>=1.0.0",
 ]
