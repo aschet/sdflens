@@ -122,6 +122,7 @@ class Exporter(QObject):
             dialog.file_format,
             layer,
             dialog.single_layer,
+            dialog.apply_z_offset,
         )
 
     def write_export(
@@ -133,17 +134,19 @@ class Exporter(QObject):
         file_format: sdfio.FileFormat | x3pio.DataStorage,
         layer: int = 0,
         single_layer: bool = False,
+        apply_z_offset: bool = False,
     ) -> None:
         """Save ``file`` to ``path`` converted to the given version, data type and format.
 
         ``layer``, counted from 0, is the layer that is saved as an SDF file, and as an x3p file
-        if ``single_layer`` says to save that one only.
+        if ``single_layer`` says to save that one only. ``apply_z_offset`` adds the z offset of
+        the placement to the heights of an SDF file.
         """
         QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
         error: Exception | None = None
         dropped = False
         try:
-            converted = convert_file(file, dialect, data_type, layer, single_layer)
+            converted = convert_file(file, dialect, data_type, layer, single_layer, apply_z_offset)
             if isinstance(converted, sdfio.SdfFile):
                 converted.save(path, format=cast(sdfio.FileFormat, file_format))
             else:

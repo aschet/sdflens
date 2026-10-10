@@ -25,6 +25,7 @@ from sdfio import DataType, FileFormat, SdfDialect, SdfFile
 from .convert import (
     ExportProblem,
     ProblemKind,
+    addable_z_offset,
     allowed_data_types,
     extensions_fit,
     format_problem,
@@ -72,6 +73,9 @@ class SaveOptionsDialog(QDialog):
         self._sdf: SdfFile | None = None
         if not is_x3p and is_grid(file):
             self._sdf = file if isinstance(file, SdfFile) else x3p_to_sdf(file, layer)
+        # An SDF file has no coordinate system, so the z offset of an x3p file is lost unless it
+        # is added to the heights; an x3p file keeps its placement.
+        offset = 0.0 if is_x3p else addable_z_offset(file)
         self.setWindowTitle(self.tr("Save as x3p") if is_x3p else self.tr("Save as SDF"))
 
         self._version = QComboBox(self)
@@ -94,11 +98,13 @@ class SaveOptionsDialog(QDialog):
 
         # An x3p file keeps all its layers unless the user asks for the one that is shown.
         layers = len(file.layers) if isinstance(file, x3pio.X3pFile) else 1
-        self._single_layer = QCheckBox(
-            self.tr("Save only layer {number} of {count}").format(number=layer + 1, count=layers),
-            self,
-        )
+        self._single_layer = QCheckBox(self.tr("Save only the current layer"), self)
         self._single_layer.setVisible(is_x3p and layers > 1)
+        self._z_offset = QCheckBox(self.tr("Add the z offset to the heights"), self)
+        self._z_offset.setToolTip(
+            self.tr("SDF has no coordinate system, so the z offset of the placement is lost.")
+        )
+        self._z_offset.setVisible(offset != 0.0)
 
         self._note = QLabel(self)
         self._note.setWordWrap(True)
@@ -113,6 +119,7 @@ class SaveOptionsDialog(QDialog):
         layout.addRow(self.tr("Encoding:"), self._encoding)
         layout.addRow(self.tr("Data type:"), self._data_type)
         layout.addRow(self._single_layer)
+        layout.addRow(self._z_offset)
         layout.addRow(self._note)
         layout.addRow(self._buttons)
 
@@ -122,6 +129,7 @@ class SaveOptionsDialog(QDialog):
         self._update()
         self._version.currentIndexChanged.connect(lambda _index: self._update())
         self._encoding.currentIndexChanged.connect(lambda _index: self._update())
+        self._z_offset.toggled.connect(lambda _checked: self._update())
 
     @property
     def dialect(self) -> SdfDialect | x3pio.Revision:
@@ -145,6 +153,11 @@ class SaveOptionsDialog(QDialog):
     def single_layer(self) -> bool:
         """Whether only the layer that is shown is saved, as an x3p file of layers can be."""
         return self._single_layer.isVisibleTo(self) and self._single_layer.isChecked()
+
+    @property
+    def apply_z_offset(self) -> bool:
+        """Whether the z offset of the placement is added to the heights of an SDF file."""
+        return self._z_offset.isVisibleTo(self) and self._z_offset.isChecked()
 
     @property
     def version_name(self) -> str:
@@ -214,10 +227,14 @@ class SaveOptionsDialog(QDialog):
                 "The metadata is saved in the trailer. Offsets, the rotation and the vendor "
                 "extensions are not kept."
             )
-            if len(file.layers) > 1:
-                note += " " + self.tr("Only layer {number} of {count} is saved.").format(
-                    number=self._layer + 1, count=len(file.layers)
+            if self.apply_z_offset:
+                note = self.tr(
+                    "The metadata is saved in the trailer. The z offset is added to the "
+                    "heights. The x and y offsets, the rotation and the vendor extensions are "
+                    "not kept."
                 )
+            if len(file.layers) > 1:
+                note += " " + self.tr("Only the current layer is saved.")
             return note
         if (
             isinstance(dialect, x3pio.Revision)

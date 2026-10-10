@@ -12,8 +12,9 @@ import sdfio
 import x3pio
 from sdfio import DataType, SdfDialect, SdfFile, SdfFormatError
 
-from helpers import make_cloud, make_ramp, make_sdf, make_x3p
+from helpers import make_cloud, make_placed_x3p, make_ramp, make_sdf, make_x3p
 from sdflens.convert import (
+    addable_z_offset,
     allowed_data_types,
     convert_file,
     convert_for_export,
@@ -262,3 +263,47 @@ def test_vendor_extensions_are_kept_when_they_fit_and_dropped_when_not() -> None
 def test_a_data_type_of_the_other_format_is_rejected() -> None:
     with pytest.raises(TypeError):
         convert_file(make_sdf(make_ramp()), SdfDialect.ISO_2_0, x3pio.DataType.INT16)
+
+
+def test_the_z_offset_is_lost_unless_it_is_added_to_the_heights_of_an_sdf() -> None:
+    x3p = make_placed_x3p(make_ramp())
+
+    plain = x3p_to_sdf(x3p)
+    np.testing.assert_allclose(plain.data, make_ramp(), equal_nan=True)  # the stored heights
+    added = x3p_to_sdf(x3p, apply_z_offset=True)
+    np.testing.assert_allclose(added.data, make_ramp() + 0.5, equal_nan=True)  # NaN stays NaN
+    assert np.array_equal(np.isnan(added.data), np.isnan(make_ramp()))
+
+
+def test_the_z_offset_is_added_to_the_layer_that_is_saved() -> None:
+    x3p = make_placed_x3p(make_ramp(), 10.0 * make_ramp())
+
+    converted = convert_file(x3p, SdfDialect.ISO_2_0, DataType.BINARY64, 1, apply_z_offset=True)
+    assert isinstance(converted, SdfFile)
+    np.testing.assert_allclose(converted.data, 10.0 * make_ramp() + 0.5, equal_nan=True)
+
+
+def test_the_z_offset_is_not_added_to_a_rotated_surface() -> None:
+    x3p = make_placed_x3p(make_ramp(), turn=True)
+
+    assert addable_z_offset(x3p) == 0.0
+    with pytest.raises(SdfFormatError, match="rotated"):
+        x3p_to_sdf(x3p, apply_z_offset=True)
+
+
+def test_the_addable_z_offset_of_a_file() -> None:
+    assert addable_z_offset(make_placed_x3p(make_ramp())) == 0.5
+    assert addable_z_offset(make_placed_x3p(make_ramp(), offset=0.0)) == 0.0
+    assert addable_z_offset(make_x3p()) == 0.0
+    assert addable_z_offset(make_sdf(make_ramp())) == 0.0
+
+
+def test_an_x3p_keeps_its_placement_whatever_apply_z_offset_says() -> None:
+    x3p = make_placed_x3p(make_ramp())
+
+    converted = convert_file(
+        x3p, x3pio.Revision.ISO25178_72_2017_DAM1, x3pio.DataType.FLOAT64, apply_z_offset=True
+    )
+    assert isinstance(converted, x3pio.X3pFile)
+    np.testing.assert_allclose(converted.layers[0].z, make_ramp(), equal_nan=True)
+    assert converted.placement == x3p.placement

@@ -151,20 +151,38 @@ def sdf_to_x3p(sdf: SdfFile) -> x3pio.X3pFile:
     )
 
 
-def x3p_to_sdf(x3p: x3pio.X3pFile, layer: int = 0) -> SdfFile:
+def addable_z_offset(file: SurfaceFile) -> float:
+    """Return the z offset of the placement of ``file`` in meters that can be added to the heights.
+
+    An SDF file has no coordinate system, so the offset is lost on saving unless it is added to
+    the heights. That gives the global heights only if the placement has no rotation. The result
+    is 0 for an SDF file, for a placement with a rotation and for a file without an offset.
+    """
+    if isinstance(file, SdfFile) or file.placement.has_rotation:
+        return 0.0
+    return float(file.placement.offset[2])
+
+
+def x3p_to_sdf(x3p: x3pio.X3pFile, layer: int = 0, apply_z_offset: bool = False) -> SdfFile:
     """Return the SDF file that holds the surface of ``layer`` of ``x3p``, as binary64 in ISO-2.0.
 
     Only a grid of heights can be saved, and an SDF file holds one: of several layers the one
     asked for, counted from 0. The metadata becomes the
     tagged trailer, the manufacturer of the instrument the manufacturer ID and the date the
-    creation date. Offsets, the rotation and vendor extensions are lost.
+    creation date. Offsets, the rotation and vendor extensions are lost, except that
+    ``apply_z_offset`` adds the z offset of the placement to the heights.
 
-    :raises SdfFormatError: If ``x3p`` is a point cloud or has x or y coordinates for each point.
+    :raises SdfFormatError: If ``x3p`` is a point cloud or has x or y coordinates for each point,
+        or if ``apply_z_offset`` is given for a placement with a rotation.
     """
     if not is_grid(x3p):
         raise SdfFormatError("Only a grid of heights can be saved as an SDF file")
     chosen = x3p.layers[layer]
     data = np.array(np.atleast_2d(chosen.z), dtype=np.float64)
+    if apply_z_offset:
+        if chosen.placement.has_rotation:
+            raise SdfFormatError("The z offset cannot be added to the heights of a rotated surface")
+        data += float(chosen.placement.offset[2])
     metadata = x3p.metadata
     fields: dict[str, str] = {}
     create_date = None
@@ -232,19 +250,22 @@ def convert_file(
     data_type: DataType | x3pio.DataType,
     layer: int = 0,
     single_layer: bool = False,
+    apply_z_offset: bool = False,
 ) -> SdfFile | x3pio.X3pFile:
     """Return ``file`` converted to the format of ``dialect``, ready to save.
 
     An SDF file holds one grid, so of several layers the one asked for, counted from 0, is saved
     as SDF. An x3p file keeps all its layers, or with ``single_layer`` only that one, with the
-    metadata and the vendor extensions of the file.
+    metadata, the placement and the vendor extensions of the file. ``apply_z_offset`` adds the z
+    offset of the placement to the heights of an SDF file, which has no coordinate system, and
+    does nothing for an x3p file.
 
     :raises SdfFormatError: If an SDF file cannot be made of the data, or encode it.
     :raises X3pFormatError: If an x3p file cannot encode the data.
     :raises TypeError: If ``data_type`` is not one of the format of ``dialect``.
     """
     if isinstance(dialect, SdfDialect) and isinstance(data_type, DataType):
-        sdf = file if isinstance(file, SdfFile) else x3p_to_sdf(file, layer)
+        sdf = file if isinstance(file, SdfFile) else x3p_to_sdf(file, layer, apply_z_offset)
         return convert_for_export(sdf, dialect, data_type)
     if isinstance(dialect, x3pio.Revision) and isinstance(data_type, x3pio.DataType):
         x3p = sdf_to_x3p(file) if isinstance(file, SdfFile) else file

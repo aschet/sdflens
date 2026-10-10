@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
     QToolBar,
 )
 
-from helpers import COLS, ROWS, make_cloud, make_ramp, make_sdf, make_x3p
+from helpers import COLS, ROWS, make_cloud, make_placed_x3p, make_ramp, make_sdf, make_x3p
 from sdflens import app as app_module
 from sdflens.aboutdialog import AboutDialog
 from sdflens.camera import Tool
@@ -977,12 +977,10 @@ def test_options_dialog_says_what_an_sdf_file_of_an_x3p_file_loses() -> None:
 
     assert dialog.dialect is sdfio.SdfDialect.ISO_2_0
     assert "vendor extensions" in dialog._note.text()
-    assert "Only layer 1 of 2 is saved" in dialog._note.text()
+    assert "Only the current layer is saved" in dialog._note.text()
     assert _ok(dialog).isEnabled()
-    chosen = SaveOptionsDialog(
-        x3pio.Surface.from_array(layers, x_scale=1e-6, y_scale=1e-6), is_x3p=False, layer=1
-    )
-    assert "Only layer 2 of 2 is saved" in chosen._note.text()
+    single = SaveOptionsDialog(make_x3p(), is_x3p=False)
+    assert "current layer" not in single._note.text()  # one layer: nothing to choose
 
 
 def test_options_dialog_warns_when_the_vendor_extensions_do_not_fit() -> None:
@@ -1243,7 +1241,7 @@ def test_the_save_dialog_offers_a_single_layer_for_an_x3p_file_of_layers_only() 
 
     dialog = SaveOptionsDialog(layered, is_x3p=True, layer=1)
     assert dialog._single_layer.isVisibleTo(dialog)
-    assert dialog._single_layer.text() == "Save only layer 2 of 3"
+    assert dialog._single_layer.text() == "Save only the current layer"
     assert not dialog.single_layer  # everything is saved unless it is asked for
     dialog._single_layer.setChecked(True)
     assert dialog.single_layer
@@ -1253,6 +1251,45 @@ def test_the_save_dialog_offers_a_single_layer_for_an_x3p_file_of_layers_only() 
     assert not SaveOptionsDialog(make_sdf(make_ramp()), is_x3p=True)._single_layer.isVisibleTo(
         dialog
     )
+
+
+def test_the_save_dialog_offers_the_z_offset_only_for_an_sdf_file_of_a_placed_x3p() -> None:
+    placed = make_placed_x3p(make_ramp())
+
+    dialog = SaveOptionsDialog(placed, is_x3p=False)
+    assert dialog._z_offset.isVisibleTo(dialog)
+    assert dialog._z_offset.text() == "Add the z offset to the heights"
+    assert not dialog.apply_z_offset  # the heights are saved as they are unless it is asked for
+    assert "z offset is added" not in dialog._note.text()
+    dialog._z_offset.setChecked(True)
+    assert dialog.apply_z_offset
+    assert "z offset is added" in dialog._note.text()
+
+    assert not SaveOptionsDialog(placed, is_x3p=True)._z_offset.isVisibleTo(dialog)  # x3p
+    assert not SaveOptionsDialog(make_x3p(), is_x3p=False)._z_offset.isVisibleTo(
+        dialog
+    )  # no offset
+    assert not SaveOptionsDialog(make_sdf(make_ramp()), is_x3p=False)._z_offset.isVisibleTo(dialog)
+    rotated = make_placed_x3p(make_ramp(), turn=True)
+    assert not SaveOptionsDialog(rotated, is_x3p=False)._z_offset.isVisibleTo(dialog)
+
+
+def test_an_sdf_file_is_saved_with_the_z_offset_added_or_without(tmp_path: Path) -> None:
+    placed = make_placed_x3p(make_ramp())
+    window = MainWindow()
+    export = window._exporter.write_export
+    args = (sdfio.SdfDialect.ISO_2_0, sdfio.DataType.BINARY64, sdfio.FileFormat.BINARY)
+
+    export(placed, str(tmp_path / "plain.sdf"), *args)
+    export(placed, str(tmp_path / "global.sdf"), *args, 0, False, True)
+
+    np.testing.assert_allclose(
+        sdfio.read(tmp_path / "plain.sdf").data, make_ramp(), atol=1e-9, equal_nan=True
+    )
+    np.testing.assert_allclose(
+        sdfio.read(tmp_path / "global.sdf").data, make_ramp() + 0.5, atol=1e-9, equal_nan=True
+    )
+    window.close()
 
 
 def test_an_x3p_file_is_saved_with_all_layers_or_with_the_chosen_one(

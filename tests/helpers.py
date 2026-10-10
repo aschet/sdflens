@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import numpy as np
+import x3pio
 from numpy.typing import NDArray
 from sdfio import SdfFile, SdfHeader
 from x3pio import Surface
@@ -51,3 +52,18 @@ def make_cloud() -> NDArray[np.float64]:
     points = rng.uniform(0.0, 1e-3, (200, 3))
     points[:, 2] = 0.1 * points[:, 0]
     return points
+
+
+def make_placed_x3p(*layers: np.ndarray, offset: float = 0.5, turn: bool = False) -> x3pio.Surface:
+    """Build an x3p surface whose view coordinate system is ``offset`` m below the global one."""
+    rotation = x3pio.Placement.from_axis_angle([0.0, 1.0, 0.0], 0.1) if turn else None
+    placement = x3pio.Placement.translation(0.0, 0.0, offset)
+    if rotation is not None:
+        placement = placement @ rotation
+    return x3pio.Surface.from_array(
+        np.stack(layers) if len(layers) > 1 else layers[0],
+        x_scale=1e-6,
+        y_scale=2e-6,
+        placement=placement,
+        coordinate_system=x3pio.CoordinateSystem.VIEW,
+    )
