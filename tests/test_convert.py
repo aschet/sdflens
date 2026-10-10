@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 import sdfio
 import x3pio
-from sdfio import DataType, SdfDialect, SdfFormatError
+from sdfio import DataType, SdfDialect, SdfFile, SdfFormatError
 
 from helpers import make_cloud, make_ramp, make_sdf, make_x3p
 from sdflens.convert import (
@@ -135,9 +135,9 @@ def test_sdf_converts_to_x3p_with_its_scales_and_metadata() -> None:
     sdf.trailer = "a note"
     x3p = sdf_to_x3p(sdf)
 
-    assert x3p.header.feature_type is x3pio.FeatureType.SURFACE
+    assert isinstance(x3p, x3pio.Surface)
     assert (x3p.header.x.increment, x3p.header.y.increment) == (1e-6, 2e-6)
-    np.testing.assert_allclose(x3p.surface, make_ramp(), equal_nan=True)
+    np.testing.assert_allclose(x3p.layer.z, make_ramp(), equal_nan=True)
     assert x3p.metadata is not None
     assert x3p.metadata.instrument.manufacturer == sdf.header.manufacturer_id
     assert x3p.metadata.comment == "a note"
@@ -146,12 +146,12 @@ def test_sdf_converts_to_x3p_with_its_scales_and_metadata() -> None:
 def test_sdf_profile_converts_to_an_x3p_profile() -> None:
     x3p = sdf_to_x3p(make_sdf(make_ramp()[:1, :]))
 
-    assert x3p.header.feature_type is x3pio.FeatureType.PROFILE
+    assert isinstance(x3p, x3pio.Profile)
 
 
 def test_x3p_converts_to_sdf_with_its_metadata_in_the_trailer() -> None:
     x3p = make_x3p()
-    x3p.update_metadata(manufacturer="Ünïcode manufacturer name")
+    x3p = x3p.with_metadata(manufacturer="Ünïcode manufacturer name")
     sdf = x3p_to_sdf(x3p)
 
     assert (sdf.header.x_scale, sdf.header.y_scale) == (1e-6, 2e-6)
@@ -164,7 +164,7 @@ def test_x3p_converts_to_sdf_with_its_metadata_in_the_trailer() -> None:
 
 
 def test_only_a_grid_of_heights_converts_to_sdf() -> None:
-    cloud = x3pio.X3pFile.from_points(make_cloud())
+    cloud = x3pio.PointCloud.from_points(make_cloud())
 
     with pytest.raises(SdfFormatError):
         x3p_to_sdf(cloud)
@@ -172,17 +172,30 @@ def test_only_a_grid_of_heights_converts_to_sdf() -> None:
         convert_file(cloud, SdfDialect.ISO_2_0, DataType.BINARY64)
 
 
-def test_first_layer_of_an_x3p_is_saved_as_sdf() -> None:
+def test_the_chosen_layer_of_an_x3p_is_saved_as_sdf() -> None:
     layers = np.stack([make_ramp(), make_ramp() + 1.0])
-    sdf = x3p_to_sdf(x3pio.X3pFile.from_array(layers, x_scale=1e-6, y_scale=1e-6))
+    x3p = x3pio.Surface.from_array(layers, x_scale=1e-6, y_scale=1e-6)
 
-    np.testing.assert_allclose(sdf.data, make_ramp(), equal_nan=True)
+    np.testing.assert_allclose(x3p_to_sdf(x3p).data, make_ramp(), equal_nan=True)  # the first
+    np.testing.assert_allclose(x3p_to_sdf(x3p, 1).data, make_ramp() + 1.0, equal_nan=True)
+    converted = convert_file(x3p, SdfDialect.ISO_2_0, DataType.BINARY64, 1)
+    assert isinstance(converted, SdfFile)
+    np.testing.assert_allclose(converted.data, make_ramp() + 1.0, equal_nan=True)
+
+
+def test_an_x3p_keeps_all_its_layers_when_it_is_converted() -> None:
+    layers = np.stack([make_ramp(), make_ramp() + 1.0])
+    x3p = x3pio.Surface.from_array(layers, x_scale=1e-6, y_scale=1e-6)
+    converted = convert_file(x3p, x3pio.Revision.ISO5436_2000, x3pio.DataType.FLOAT64, 1)
+
+    assert isinstance(converted, x3pio.X3pFile)
+    assert len(converted.layers) == 2
 
 
 @pytest.mark.parametrize("storage", list(x3pio.DataStorage))
-@pytest.mark.parametrize("dialect", list(x3pio.X3pDialect))
+@pytest.mark.parametrize("dialect", list(x3pio.Revision))
 def test_conversion_to_x3p_round_trips(
-    dialect: x3pio.X3pDialect, storage: x3pio.DataStorage, tmp_path: Path
+    dialect: x3pio.Revision, storage: x3pio.DataStorage, tmp_path: Path
 ) -> None:
     path = tmp_path / "out.x3p"
     converted = convert_file(make_sdf(make_ramp()), dialect, x3pio.DataType.INT32)
@@ -190,27 +203,27 @@ def test_conversion_to_x3p_round_trips(
     converted.save(path, storage=storage)
     loaded = x3pio.read(path)
 
-    assert loaded.header.dialect is dialect
+    assert loaded.revision is dialect
     assert loaded.header.z.data_type is x3pio.DataType.INT32
-    np.testing.assert_allclose(loaded.surface, make_ramp(), atol=1e-9, equal_nan=True)
+    np.testing.assert_allclose(loaded.layer.z, make_ramp(), atol=1e-9, equal_nan=True)
 
 
 def test_point_cloud_converts_between_x3p_versions_and_types(tmp_path: Path) -> None:
-    cloud = x3pio.X3pFile.from_points(make_cloud())
-    converted = convert_file(cloud, x3pio.X3pDialect.ISO5436_2000, x3pio.DataType.FLOAT32)
+    cloud = x3pio.PointCloud.from_points(make_cloud())
+    converted = convert_file(cloud, x3pio.Revision.ISO5436_2000, x3pio.DataType.FLOAT32)
     assert isinstance(converted, x3pio.X3pFile)
     converted.save(tmp_path / "cloud.x3p", storage=x3pio.DataStorage.XML)
 
-    assert x3pio.read(tmp_path / "cloud.x3p").shape == (200,)
+    assert x3pio.read(tmp_path / "cloud.x3p").layer.z.shape == (200,)
 
 
 def test_vendor_extensions_are_kept_when_they_fit_and_dropped_when_not() -> None:
     x3p = make_x3p()  # two IDs: the standard before the amendment has a place for one only
 
-    assert extensions_fit(x3p, x3pio.X3pDialect.ISO25178_72_2017_DAM1)
-    assert not extensions_fit(x3p, x3pio.X3pDialect.ISO5436_2000)
-    kept = convert_file(x3p, x3pio.X3pDialect.ISO25178_72_2017_DAM1, x3pio.DataType.FLOAT64)
-    dropped = convert_file(x3p, x3pio.X3pDialect.ISO5436_2000, x3pio.DataType.FLOAT64)
+    assert extensions_fit(x3p, x3pio.Revision.ISO25178_72_2017_DAM1)
+    assert not extensions_fit(x3p, x3pio.Revision.ISO5436_2000)
+    kept = convert_file(x3p, x3pio.Revision.ISO25178_72_2017_DAM1, x3pio.DataType.FLOAT64)
+    dropped = convert_file(x3p, x3pio.Revision.ISO5436_2000, x3pio.DataType.FLOAT64)
     assert isinstance(kept, x3pio.X3pFile)
     assert isinstance(dropped, x3pio.X3pFile)
     assert len(kept.extensions) == 2

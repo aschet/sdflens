@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 from sdfio import SdfFile, SdfHeader
-from x3pio import X3pFile
+from x3pio import Surface
 
 ROWS, COLS = 4, 5
 
@@ -35,12 +35,11 @@ def make_sdf(data: NDArray[np.float64], x_scale: float = 1e-6, y_scale: float = 
 
 def make_x3p(
     data: NDArray[np.float64] | None = None, x_scale: float = 1e-6, y_scale: float = 2e-6
-) -> X3pFile:
+) -> Surface:
     """Build an in-memory x3p surface around ``data``, with two vendor extensions."""
-    x3p = X3pFile.from_array(
+    x3p = Surface.from_array(
         make_ramp() if data is None else data, x_scale=x_scale, y_scale=y_scale
-    )
-    x3p.update_metadata(creator="Jane Doe", comment="Test surface")
+    ).with_metadata(creator="Jane Doe", comment="Test surface")
     x3p.extensions["http://www.vendor.com/mypath/a.xml"] = b"<a/>"
     x3p.extensions["http://www.vendor.com/image.png"] = b"x" * 1500
     return x3p

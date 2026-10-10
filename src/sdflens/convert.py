@@ -138,26 +138,24 @@ def sdf_to_x3p(sdf: SdfFile) -> x3pio.X3pFile:
     header = sdf.header
     trailer = sdf.trailer
     comment = trailer if isinstance(trailer, str) else trailer.decode("ascii", errors="replace")
-    metadata = x3pio.X3pMetadata(
+    metadata = x3pio.Metadata(
         date=header.create_date or datetime.now(UTC),
         instrument=x3pio.Instrument(manufacturer=header.manufacturer_id),
         comment=comment.strip() or None,
     )
-    x3p = x3pio.X3pFile.from_array(
-        np.asarray(sdf.data, dtype=np.float64),
-        x_scale=float(header.x_scale),
-        y_scale=float(header.y_scale),
-        metadata=metadata,
-    )
+    data = np.asarray(sdf.data, dtype=np.float64)
     if header.num_profiles == 1:
-        x3p.header.feature_type = x3pio.FeatureType.PROFILE
-    return x3p
+        return x3pio.Profile.from_array(data[0], x_scale=float(header.x_scale), metadata=metadata)
+    return x3pio.Surface.from_array(
+        data, x_scale=float(header.x_scale), y_scale=float(header.y_scale), metadata=metadata
+    )
 
 
-def x3p_to_sdf(x3p: x3pio.X3pFile) -> SdfFile:
-    """Return the SDF file that holds the surface of ``x3p``, as binary64 in ISO-2.0.
+def x3p_to_sdf(x3p: x3pio.X3pFile, layer: int = 0) -> SdfFile:
+    """Return the SDF file that holds the surface of ``layer`` of ``x3p``, as binary64 in ISO-2.0.
 
-    Only a grid of heights can be saved: of several layers the first. The metadata becomes the
+    Only a grid of heights can be saved, and an SDF file holds one: of several layers the one
+    asked for, counted from 0. The metadata becomes the
     tagged trailer, the manufacturer of the instrument the manufacturer ID and the date the
     creation date. Offsets, the rotation and vendor extensions are lost.
 
@@ -165,7 +163,8 @@ def x3p_to_sdf(x3p: x3pio.X3pFile) -> SdfFile:
     """
     if not is_grid(x3p):
         raise SdfFormatError("Only a grid of heights can be saved as an SDF file")
-    data = np.array(x3p.data[0], dtype=np.float64)
+    chosen = x3p.layers[layer]
+    data = np.array(np.atleast_2d(chosen.z), dtype=np.float64)
     metadata = x3p.metadata
     fields: dict[str, str] = {}
     create_date = None
@@ -194,52 +193,58 @@ def x3p_to_sdf(x3p: x3pio.X3pFile) -> SdfFile:
         mod_date=None,
         num_points=data.shape[1],
         num_profiles=data.shape[0],
-        x_scale=abs(float(x3p.header.x.increment)),
-        y_scale=abs(float(x3p.header.y.increment)),
+        x_scale=abs(float(chosen.header.x.increment)),
+        y_scale=abs(float(chosen.header.y.increment)),
     )
     trailer = format_tagged_fields({name: _ascii(value) for name, value in fields.items() if value})
     return SdfFile(header=header, data=data, trailer=trailer)
 
 
-def extensions_fit(x3p: x3pio.X3pFile, dialect: x3pio.X3pDialect) -> bool:
-    """Whether the vendor extensions of ``x3p`` can be kept in ``dialect``."""
+def extensions_fit(x3p: x3pio.X3pFile, revision: x3pio.Revision) -> bool:
+    """Whether the vendor extensions of ``x3p`` can be kept in ``revision``."""
     try:
-        x3p.with_dialect(dialect)
+        x3p.with_revision(revision)
     except x3pio.X3pFormatError:
         return False
     return True
 
 
 def convert_x3p_for_export(
-    x3p: x3pio.X3pFile, dialect: x3pio.X3pDialect, data_type: x3pio.DataType
+    x3p: x3pio.X3pFile, revision: x3pio.Revision, data_type: x3pio.DataType
 ) -> x3pio.X3pFile:
-    """Return ``x3p`` retargeted to ``dialect`` and the storage type of the heights.
+    """Return ``x3p`` retargeted to ``revision`` and the storage type of the heights.
 
-    The vendor extensions are left out if ``dialect`` cannot hold them, see
+    The vendor extensions are left out if ``revision`` cannot hold them, see
     :func:`extensions_fit`. The scale of the heights is the finest that fits ``data_type``. The
     input is not modified.
 
     :raises X3pFormatError: If the data cannot be stored in ``data_type``.
     """
-    converted = x3p.with_dialect(dialect, drop_extensions=True)
+    converted = x3p.with_revision(revision, drop_extensions=True)
     if converted.header.z.data_type is not data_type:
         converted = converted.with_z_type(data_type)
     return converted
 
 
 def convert_file(
-    file: SurfaceFile, dialect: SdfDialect | x3pio.X3pDialect, data_type: DataType | x3pio.DataType
+    file: SurfaceFile,
+    dialect: SdfDialect | x3pio.Revision,
+    data_type: DataType | x3pio.DataType,
+    layer: int = 0,
 ) -> SdfFile | x3pio.X3pFile:
     """Return ``file`` converted to the format of ``dialect``, ready to save.
+
+    An SDF file holds one grid, so of several layers the one asked for, counted from 0, is saved
+    as SDF. An x3p file keeps all its layers.
 
     :raises SdfFormatError: If an SDF file cannot be made of the data, or encode it.
     :raises X3pFormatError: If an x3p file cannot encode the data.
     :raises TypeError: If ``data_type`` is not one of the format of ``dialect``.
     """
     if isinstance(dialect, SdfDialect) and isinstance(data_type, DataType):
-        sdf = file if isinstance(file, SdfFile) else x3p_to_sdf(file)
+        sdf = file if isinstance(file, SdfFile) else x3p_to_sdf(file, layer)
         return convert_for_export(sdf, dialect, data_type)
-    if isinstance(dialect, x3pio.X3pDialect) and isinstance(data_type, x3pio.DataType):
+    if isinstance(dialect, x3pio.Revision) and isinstance(data_type, x3pio.DataType):
         x3p = sdf_to_x3p(file) if isinstance(file, SdfFile) else file
         return convert_x3p_for_export(x3p, dialect, data_type)
     raise TypeError("The data type does not belong to the format of the dialect")

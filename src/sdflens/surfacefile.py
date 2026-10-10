@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import sdfio
 import x3pio
 
@@ -20,6 +21,7 @@ __all__ = [
     "build_mesh",
     "build_model",
     "is_grid",
+    "layer_count",
     "read_surface_file",
 ]
 
@@ -52,26 +54,34 @@ def is_grid(file: SurfaceFile) -> bool:
     """Whether ``file`` is a matrix of heights on a regular grid, which an SDF file can hold."""
     if isinstance(file, sdfio.SdfFile):
         return True
-    return file.is_matrix and file.header.x.is_incremental and file.header.y.is_incremental
+    return file.layers[0].is_regular_grid
 
 
-def build_model(file: SurfaceFile) -> SurfaceModel | PointCloudModel:
-    """Return the model displaying ``file``.
+def layer_count(file: SurfaceFile) -> int:
+    """Return the number of layers of ``file``; an SDF file and a point cloud have one."""
+    return 1 if isinstance(file, sdfio.SdfFile) else len(file.layers)
 
-    An SDF file and an x3p surface or profile on a regular grid are a :class:`SurfaceModel`; for
-    several layers, the first one. All other x3p data is a :class:`PointCloudModel`: a point
-    cloud, or a matrix whose x or y coordinates are stored for every point. The coordinates are
-    those of the view system, without the offset and rotation of the file.
 
-    :raises NoMeasuredPointsError: If the file holds no measured points.
+def build_model(file: SurfaceFile, layer: int = 0) -> SurfaceModel | PointCloudModel:
+    """Return the model displaying ``layer`` of ``file``, counted from 0.
+
+    An SDF file and an x3p surface or profile on a regular grid are a :class:`SurfaceModel`. All
+    other x3p data is a :class:`PointCloudModel`: a point cloud, or a matrix whose x or y
+    coordinates are stored for every point. The coordinates are those of the view system, without
+    the offset and rotation of the file.
+
+    :raises NoMeasuredPointsError: If the layer holds no measured points.
+    :raises IndexError: If ``file`` has no such layer.
     """
     if isinstance(file, sdfio.SdfFile):
         return SurfaceModel.from_sdf(file)
-    if is_grid(file):
+    chosen = file.layers[layer]
+    if chosen.is_regular_grid:
+        header = chosen.header
         return SurfaceModel.from_grid(
-            file.data[0], abs(file.header.x.increment), abs(file.header.y.increment)
+            np.atleast_2d(chosen.z), abs(header.x.increment), abs(header.y.increment)
         )
-    return PointCloudModel.from_points(file.to_points(global_coordinates=False))
+    return PointCloudModel.from_points(chosen.points(frame=x3pio.Frame.VIEW).reshape(-1, 3))
 
 
 def build_mesh(model: SurfaceModel | PointCloudModel) -> SurfaceMesh:

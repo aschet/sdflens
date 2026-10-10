@@ -56,8 +56,11 @@ class Exporter(QObject):
         self._window = window
         self._settings = settings
 
-    def save_as(self, file: SurfaceFile, source: str | None) -> None:
+    def save_as(self, file: SurfaceFile, source: str | None, layer: int = 0) -> None:
         """Ask for a file name and format, then for the options of the format, and save ``file``.
+
+        An SDF file holds one grid, so of several layers the one asked for, counted from 0, is
+        saved as SDF; an x3p file keeps all of them.
 
         The format is chosen by the file type of the dialog, which is SDF unless the data is a
         point cloud, or by the extension that is typed. Only a grid of heights can be saved as
@@ -100,7 +103,7 @@ class Exporter(QObject):
                 settings.save_sdf_data_type,
             )
         )
-        dialog = SaveOptionsDialog(file, is_x3p, self._window, last)
+        dialog = SaveOptionsDialog(file, is_x3p, self._window, last, layer)
         if dialog.exec() != SaveOptionsDialog.DialogCode.Accepted:
             return
         if is_x3p:
@@ -111,22 +114,26 @@ class Exporter(QObject):
             settings.save_sdf_version = dialog.version_name
             settings.save_sdf_encoding = dialog.encoding_name
             settings.save_sdf_data_type = dialog.data_type_name
-        self.write_export(file, path, dialog.dialect, dialog.data_type, dialog.file_format)
+        self.write_export(file, path, dialog.dialect, dialog.data_type, dialog.file_format, layer)
 
     def write_export(
         self,
         file: SurfaceFile,
         path: str,
-        dialect: sdfio.SdfDialect | x3pio.X3pDialect,
+        dialect: sdfio.SdfDialect | x3pio.Revision,
         data_type: sdfio.DataType | x3pio.DataType,
         file_format: sdfio.FileFormat | x3pio.DataStorage,
+        layer: int = 0,
     ) -> None:
-        """Save ``file`` to ``path`` converted to the given version, data type and format."""
+        """Save ``file`` to ``path`` converted to the given version, data type and format.
+
+        ``layer`` is the layer that is saved as an SDF file, counted from 0.
+        """
         QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
         error: Exception | None = None
         dropped = False
         try:
-            converted = convert_file(file, dialect, data_type)
+            converted = convert_file(file, dialect, data_type, layer)
             if isinstance(converted, sdfio.SdfFile):
                 converted.save(path, format=cast(sdfio.FileFormat, file_format))
             else:

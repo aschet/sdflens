@@ -953,7 +953,7 @@ def test_options_dialog_for_x3p_offers_its_versions_encodings_and_data_types(
     assert _enabled(dialog._version) == ["ISO25178-72:2017/DAM1", "ISO5436 - 2000"]
     assert _enabled(dialog._encoding) == ["Binary", "XML"]
     assert _enabled(dialog._data_type) == ["int16", "int32", "float32", "float64"]
-    assert dialog.dialect is x3pio.X3pDialect.ISO25178_72_2017_DAM1  # the newest
+    assert dialog.dialect is x3pio.Revision.ISO25178_72_2017_DAM1  # the newest
     assert dialog.file_format is x3pio.DataStorage.BINARY
     assert dialog.data_type is x3pio.DataType.FLOAT64
     assert "comment" in dialog._note.text()  # what the conversion does to the trailer
@@ -972,13 +972,17 @@ def test_options_dialog_of_an_x3p_file_starts_with_its_own_options() -> None:
 def test_options_dialog_says_what_an_sdf_file_of_an_x3p_file_loses() -> None:
     layers = np.stack([make_ramp(), make_ramp()])
     dialog = SaveOptionsDialog(
-        x3pio.X3pFile.from_array(layers, x_scale=1e-6, y_scale=1e-6), is_x3p=False
+        x3pio.Surface.from_array(layers, x_scale=1e-6, y_scale=1e-6), is_x3p=False
     )
 
     assert dialog.dialect is sdfio.SdfDialect.ISO_2_0
     assert "vendor extensions" in dialog._note.text()
-    assert "first layer" in dialog._note.text()
+    assert "Only layer 1 of 2 is saved" in dialog._note.text()
     assert _ok(dialog).isEnabled()
+    chosen = SaveOptionsDialog(
+        x3pio.Surface.from_array(layers, x_scale=1e-6, y_scale=1e-6), is_x3p=False, layer=1
+    )
+    assert "Only layer 2 of 2 is saved" in chosen._note.text()
 
 
 def test_options_dialog_warns_when_the_vendor_extensions_do_not_fit() -> None:
@@ -995,7 +999,7 @@ def test_options_dialog_remembers_an_x3p_choice() -> None:
         make_sdf(make_ramp()), is_x3p=True, last=("ISO5436 - 2000", "XML", "float32")
     )
 
-    assert dialog.dialect is x3pio.X3pDialect.ISO5436_2000
+    assert dialog.dialect is x3pio.Revision.ISO5436_2000
     assert dialog.file_format is x3pio.DataStorage.XML
     assert dialog.data_type is x3pio.DataType.FLOAT32
 
@@ -1139,16 +1143,16 @@ def test_save_as_writes_x3p_from_sdf_and_sdf_from_x3p(ramp_path: Path, tmp_path:
     window._exporter.write_export(
         sdfio.read(ramp_path),
         str(target),
-        x3pio.X3pDialect.ISO5436_2000,
+        x3pio.Revision.ISO5436_2000,
         x3pio.DataType.INT16,
         x3pio.DataStorage.XML,
     )
     loaded = x3pio.read(target)
 
-    assert loaded.header.dialect is x3pio.X3pDialect.ISO5436_2000
+    assert loaded.revision is x3pio.Revision.ISO5436_2000
     assert loaded.header.z.data_type is x3pio.DataType.INT16
     assert loaded.storage is x3pio.DataStorage.XML
-    np.testing.assert_allclose(loaded.surface, make_ramp(), atol=1e-9, equal_nan=True)
+    np.testing.assert_allclose(loaded.layer.z, make_ramp(), atol=1e-9, equal_nan=True)
 
     back = tmp_path / "back.sdf"
     window._exporter.write_export(
@@ -1169,7 +1173,7 @@ def test_save_as_reports_a_point_cloud_that_cannot_be_an_sdf_file(
     monkeypatch.setattr(QMessageBox, "critical", lambda *args: messages.append(args))
     window = MainWindow()
     window._exporter.write_export(
-        x3pio.X3pFile.from_points(make_cloud()),
+        x3pio.PointCloud.from_points(make_cloud()),
         str(tmp_path / "cloud.sdf"),
         sdfio.SdfDialect.ISO_2_0,
         sdfio.DataType.BINARY64,

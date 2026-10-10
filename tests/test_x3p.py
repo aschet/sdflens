@@ -17,7 +17,7 @@ from sdflens.infopanel import extension_names, format_metadata, metadata_rows
 from sdflens.mesh import SurfaceMesh
 from sdflens.pointcloud import PointCloudModel
 from sdflens.surface import NoMeasuredPointsError, SurfaceModel
-from sdflens.surfacefile import build_mesh, build_model, read_surface_file
+from sdflens.surfacefile import build_mesh, build_model, layer_count, read_surface_file
 
 
 def test_x3p_surface_is_a_grid_model() -> None:
@@ -30,26 +30,45 @@ def test_x3p_surface_is_a_grid_model() -> None:
 
 
 def test_x3p_profile_is_a_profile_model() -> None:
-    profile = make_ramp()[:1, :]
-    x3p = x3pio.X3pFile.from_array(profile, x_scale=1e-6, y_scale=1e-6)
-    x3p.header.feature_type = x3pio.FeatureType.PROFILE
+    x3p = x3pio.Profile.from_array(make_ramp()[0], x_scale=1e-6)
     model = build_model(x3p)
 
     assert isinstance(model, SurfaceModel)
     assert model.is_profile
 
 
-def test_first_layer_of_a_layered_x3p_is_shown() -> None:
+def test_the_layer_that_is_asked_for_is_shown() -> None:
     data = np.stack([make_ramp(), make_ramp() + 1.0])
-    model = build_model(x3pio.X3pFile.from_array(data, x_scale=1e-6, y_scale=1e-6))
+    x3p = x3pio.Surface.from_array(data, x_scale=1e-6, y_scale=1e-6)
+    first, second = build_model(x3p), build_model(x3p, 1)
 
-    assert isinstance(model, SurfaceModel)
-    assert model.data.shape == make_ramp().shape
-    assert np.nanmin(model.data) == pytest.approx(0.0)
+    assert layer_count(x3p) == 2
+    assert isinstance(first, SurfaceModel)
+    assert isinstance(second, SurfaceModel)
+    assert first.data.shape == second.data.shape == make_ramp().shape
+    assert np.nanmin(first.data) == pytest.approx(0.0)  # the first layer is the default
+    assert np.nanmin(second.data) == pytest.approx(1.0)
+    with pytest.raises(IndexError):
+        build_model(x3p, 2)
+
+
+def test_every_layer_has_its_own_value_range() -> None:
+    data = np.stack([make_ramp(), 10.0 * make_ramp()])
+    x3p = x3pio.Surface.from_array(data, x_scale=1e-6, y_scale=1e-6)
+
+    assert build_model(x3p, 1).value_range.hi == pytest.approx(
+        10.0 * build_model(x3p).value_range.hi
+    )
+
+
+def test_a_file_without_layers_of_its_own_has_one() -> None:
+    assert layer_count(make_sdf(make_ramp())) == 1
+    assert layer_count(make_x3p()) == 1
+    assert layer_count(x3pio.PointCloud.from_points(make_cloud())) == 1
 
 
 def test_x3p_point_cloud_is_a_point_cloud_model() -> None:
-    model = build_model(x3pio.X3pFile.from_points(make_cloud()))
+    model = build_model(x3pio.PointCloud.from_points(make_cloud()))
 
     assert isinstance(model, PointCloudModel)
     assert model.num_points == 200
@@ -68,10 +87,12 @@ def test_point_cloud_model_drops_points_that_are_not_measured() -> None:
 
 
 def test_matrix_with_absolute_axes_is_a_point_cloud_model() -> None:
-    x3p = make_x3p()
-    x3p.header.x.axis_type = x3pio.AxisType.ABSOLUTE
-    x3p.x = np.broadcast_to(np.arange(5) * 1e-6, x3p.data.shape).copy()
-    model = build_model(x3p)
+    rows, columns = make_ramp().shape
+    x, y = np.meshgrid(np.arange(columns) * 1e-6, np.arange(rows) * 2e-6)
+    model = build_model(x3pio.Surface.from_points(np.stack([x, y, make_ramp()], axis=-1)))
+
+    assert isinstance(model, PointCloudModel)
+    assert model.num_points == make_ramp().size - 1
 
     assert isinstance(model, PointCloudModel)
     assert model.num_points == make_ramp().size - 1
@@ -81,7 +102,7 @@ def test_file_without_measured_points_is_rejected() -> None:
     nothing = np.full((3, 3), np.nan)
 
     with pytest.raises(NoMeasuredPointsError):
-        build_model(x3pio.X3pFile.from_array(nothing, x_scale=1e-6, y_scale=1e-6))
+        build_model(x3pio.Surface.from_array(nothing, x_scale=1e-6, y_scale=1e-6))
     with pytest.raises(NoMeasuredPointsError):
         PointCloudModel.from_points(np.full((3, 3), np.nan))
 
@@ -132,7 +153,7 @@ def test_x3p_metadata_rows_show_both_records() -> None:
 
 
 def test_point_cloud_metadata_rows_have_a_list_dimension() -> None:
-    rows = dict(metadata_rows(x3pio.X3pFile.from_points(make_cloud())))
+    rows = dict(metadata_rows(x3pio.PointCloud.from_points(make_cloud())))
 
     assert rows["FeatureType"] == "PCL"
     assert rows["ListDimension"] == "200"
@@ -140,14 +161,15 @@ def test_point_cloud_metadata_rows_have_a_list_dimension() -> None:
 
 
 def test_rotation_and_vendor_id_of_the_old_dialect_are_shown() -> None:
-    x3p = make_x3p().with_dialect(x3pio.X3pDialect.ISO5436_2000, drop_extensions=True)
-    x3p.header.rotation = np.eye(3)
-    assert isinstance(x3p.extensions, x3pio.VendorFiles)
-    x3p.extensions.vendor_id = "http://www.vendor.com/format"
+    quarter_turn = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    x3p = make_x3p().with_revision(x3pio.Revision.ISO5436_2000, drop_extensions=True)
+    x3p = x3p.with_placement(x3pio.Placement(quarter_turn, offset=[1e-3, 0.0, 0.0]))
+    x3p.extensions.add("http://www.vendor.com/format", "a.bin", b"1")
     rows = dict(metadata_rows(x3p))
 
     assert rows["Revision"] == "ISO5436 - 2000"
-    assert rows["Rotation"] == "1 0 0; 0 1 0; 0 0 1"
+    assert rows["Rotation"] == "0 -1 0; 1 0 0; 0 0 1"
+    assert rows["CX.Offset"] == "0.001"
     assert rows["VendorSpecificID"] == "http://www.vendor.com/format"
 
 
@@ -169,4 +191,4 @@ def test_exported_information_lists_the_vendor_extensions() -> None:
         "http://www.vendor.com/mypath/a.xml",
         "http://www.vendor.com/image.png",
     ]
-    assert "VendorExtensions" not in format_metadata(x3pio.X3pFile.from_points(make_cloud()))
+    assert "VendorExtensions" not in format_metadata(x3pio.PointCloud.from_points(make_cloud()))

@@ -77,28 +77,31 @@ def _date(value: datetime | None) -> str:
 
 def _x3p_rows(x3p: x3pio.X3pFile) -> list[tuple[str, str]]:
     header = x3p.header
-    rows = [("Revision", header.dialect.value), ("FeatureType", header.feature_type.value)]
-    if x3p.is_matrix:
-        layers, num_rows, num_columns = x3p.shape
+    placement = x3p.placement
+    shape = x3p.layers[0].shape
+    rows = [("Revision", x3p.revision.value), ("FeatureType", x3p.feature_type.value)]
+    if isinstance(x3p, x3pio.PointCloud):
+        rows.append(("ListDimension", str(shape[0])))
+    else:
+        num_rows, num_columns = (1, shape[0]) if isinstance(x3p, x3pio.Profile) else shape
         rows += [
             ("MatrixDimension.SizeX", str(num_columns)),
             ("MatrixDimension.SizeY", str(num_rows)),
-            ("MatrixDimension.SizeZ", str(layers)),
+            ("MatrixDimension.SizeZ", str(len(x3p.layers))),
         ]
-    else:
-        rows.append(("ListDimension", str(x3p.shape[0])))
-    for name, axis in (("CX", header.x), ("CY", header.y), ("CZ", header.z)):
+    for index, (name, axis) in enumerate((("CX", header.x), ("CY", header.y), ("CZ", header.z))):
         rows += [
             (f"{name}.AxisType", axis.axis_type.name.lower()),
             (f"{name}.DataType", axis.data_type.name.lower()),
             (f"{name}.Increment", f"{axis.increment:g}"),
-            (f"{name}.Offset", f"{axis.offset:g}"),
+            (f"{name}.Offset", f"{placement.offset[index]:g}"),
         ]
-    if header.rotation is not None:
-        rotation = "; ".join(" ".join(f"{value:g}" for value in row) for row in header.rotation)
+    if placement.has_rotation:
+        rotation = "; ".join(" ".join(f"{value:g}" for value in row) for row in placement.rotation)
         rows.append(("Rotation", rotation))
-    if not header.dialect.has_vendor_ids and isinstance(x3p.extensions, x3pio.VendorFiles):
-        rows.append(("VendorSpecificID", x3p.extensions.vendor_id or ""))
+    if not x3p.revision.has_vendor_ids:
+        vendor_ids = x3p.extensions.vendor_ids
+        rows.append(("VendorSpecificID", vendor_ids[0] if vendor_ids else ""))
     metadata = x3p.metadata
     if metadata is not None:
         optional = [

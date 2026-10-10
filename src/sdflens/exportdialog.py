@@ -34,9 +34,9 @@ from .surfacefile import SurfaceFile, is_grid
 
 __all__ = ["SaveOptionsDialog"]
 
-_X3P_DIALECTS = (x3pio.X3pDialect.ISO25178_72_2017_DAM1, x3pio.X3pDialect.ISO5436_2000)
+_X3P_REVISIONS = (x3pio.Revision.ISO25178_72_2017_DAM1, x3pio.Revision.ISO5436_2000)
 _NEWEST_SDF = str(SdfDialect.ISO_2_0)
-_NEWEST_X3P = x3pio.X3pDialect.ISO25178_72_2017_DAM1.value
+_NEWEST_X3P = x3pio.Revision.ISO25178_72_2017_DAM1.value
 
 
 class SaveOptionsDialog(QDialog):
@@ -54,8 +54,11 @@ class SaveOptionsDialog(QDialog):
         is_x3p: bool,
         parent: QWidget | None = None,
         last: tuple[str, str, str] | None = None,
+        layer: int = 0,
     ) -> None:
         """Create the dialog for saving ``file`` in the format of ``is_x3p``.
+
+        ``layer`` is the layer that is saved as an SDF file, counted from 0.
 
         ``last`` is the ``(version, encoding, data type)`` chosen the previous time in this format,
         as shown by :attr:`version_name`, :attr:`encoding_name` and :attr:`data_type_name`. It
@@ -64,17 +67,18 @@ class SaveOptionsDialog(QDialog):
         super().__init__(parent)
         self._file = file
         self._is_x3p = is_x3p
+        self._layer = layer
         self._sdf: SdfFile | None = None
         if not is_x3p and is_grid(file):
-            self._sdf = file if isinstance(file, SdfFile) else x3p_to_sdf(file)
+            self._sdf = file if isinstance(file, SdfFile) else x3p_to_sdf(file, layer)
         self.setWindowTitle(self.tr("Save as x3p") if is_x3p else self.tr("Save as SDF"))
 
         self._version = QComboBox(self)
         self._encoding = QComboBox(self)
         self._data_type = QComboBox(self)
         if is_x3p:
-            for x3p_dialect in _X3P_DIALECTS:
-                self._version.addItem(x3p_dialect.value, x3p_dialect)
+            for x3p_revision in _X3P_REVISIONS:
+                self._version.addItem(x3p_revision.value, x3p_revision)
             self._encoding.addItem(self.tr("Binary"), x3pio.DataStorage.BINARY)
             self._encoding.addItem(self.tr("XML"), x3pio.DataStorage.XML)
             for x3p_type in x3p_data_types():
@@ -110,10 +114,10 @@ class SaveOptionsDialog(QDialog):
         self._encoding.currentIndexChanged.connect(lambda _index: self._update())
 
     @property
-    def dialect(self) -> SdfDialect | x3pio.X3pDialect:
+    def dialect(self) -> SdfDialect | x3pio.Revision:
         """The chosen version of the standard."""
         data = self._version.currentData()
-        return x3pio.X3pDialect(data) if self._is_x3p else SdfDialect(data)
+        return x3pio.Revision(data) if self._is_x3p else SdfDialect(data)
 
     @property
     def file_format(self) -> FileFormat | x3pio.DataStorage:
@@ -150,7 +154,7 @@ class SaveOptionsDialog(QDialog):
             self._encoding.setCurrentIndex(0 if file.header.binary else 1)
             self._select(self._data_type, DataType(file.header.data_type).name.lower())
         elif isinstance(file, x3pio.X3pFile) and self._is_x3p:
-            self._select(self._version, file.header.dialect.value)
+            self._select(self._version, file.revision.value)
             self._encoding.setCurrentIndex(0 if file.storage is x3pio.DataStorage.BINARY else 1)
             self._select(self._data_type, file.header.z.data_type.name.lower())
         else:  # another format: the newest version in binary encoding, in the widest type
@@ -195,11 +199,13 @@ class SaveOptionsDialog(QDialog):
                 "The metadata is saved in the trailer. Offsets, the rotation and the vendor "
                 "extensions are not kept."
             )
-            if file.num_layers > 1:
-                note += " " + self.tr("Only the first layer is saved.")
+            if len(file.layers) > 1:
+                note += " " + self.tr("Only layer {number} of {count} is saved.").format(
+                    number=self._layer + 1, count=len(file.layers)
+                )
             return note
         if (
-            isinstance(dialect, x3pio.X3pDialect)
+            isinstance(dialect, x3pio.Revision)
             and file.extensions
             and not extensions_fit(file, dialect)
         ):
