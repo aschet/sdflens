@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QSlider,
     QSpinBox,
     QVBoxLayout,
@@ -33,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from .camera import Tool
+from .icons import load_icon
 from .surface import SurfaceModel
 from .units import format_length, format_tick, nice_ticks, unit_for
 
@@ -301,6 +303,8 @@ class ProfileView(QWidget):
 
     #: Text describing the point under the cursor, empty when there is none.
     hovered = Signal(str)
+    #: The button to save the shown profile was clicked.
+    save_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Create an empty view."""
@@ -314,6 +318,8 @@ class ProfileView(QWidget):
         self._label = QLabel(self)
         self._slider = QSlider(Qt.Orientation.Horizontal, self)
         self._spin = QSpinBox(self)
+        self._save = QPushButton(load_icon("save-as"), "", self)
+        self._save.setToolTip(self.tr("Save profile as..."))
         self._plot = _Plot(self)
 
         controls = QHBoxLayout()
@@ -322,6 +328,7 @@ class ProfileView(QWidget):
         controls.addWidget(self._label)
         controls.addWidget(self._slider, 1)
         controls.addWidget(self._spin)
+        controls.addWidget(self._save)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(controls)
@@ -332,6 +339,7 @@ class ProfileView(QWidget):
         self._spin.valueChanged.connect(self._slider.setValue)
         self._spin.valueChanged.connect(lambda _value: self._show())
         self._plot.point_hovered.connect(self._on_point_hovered)
+        self._save.clicked.connect(self.save_requested)
         self._configure(1)
 
     def set_model(self, model: SurfaceModel | None, *, keep_selection: bool = False) -> None:
@@ -374,6 +382,10 @@ class ProfileView(QWidget):
         """Return the rendered plot."""
         return self._plot.grab().toImage()
 
+    def current_profile(self) -> tuple[NDArray[np.float64], float, bool, int]:
+        """Return the shown profile: heights, step, whether along x, and its number from 1."""
+        return self._values.copy(), self._step, self._along_x, self._spin.value()
+
     @property
     def _along_x(self) -> bool:
         return self._direction.currentIndex() == 0
@@ -404,6 +416,7 @@ class ProfileView(QWidget):
         else:
             column = np.ascontiguousarray(model.data[:, self._spin.value() - 1])
             self._values, self._step = column, model.pixel_size_y
+        self._save.setEnabled(model is not None)
         self._plot.set_series(self._values, self._step, "x" if self._along_x else "y")
 
     def _on_point_hovered(self, index: int) -> None:

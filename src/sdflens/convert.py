@@ -6,12 +6,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 
 import numpy as np
 import x3pio
+from numpy.typing import NDArray
 from sdfio import (
     DataType,
     FileFormat,
@@ -144,6 +145,25 @@ def sdf_to_x3p(sdf: SdfFile) -> x3pio.X3pFile:
         return x3pio.Profile.from_array(data[0], x_scale=float(header.x_scale), metadata=metadata)
     return x3pio.Surface.from_array(
         data, x_scale=float(header.x_scale), y_scale=float(header.y_scale), metadata=metadata
+    )
+
+
+def profile_file(file: SurfaceFile, values: NDArray[np.float64], step: float) -> SurfaceFile:
+    """Return a file of the single profile ``values``, sampled every ``step`` meters, of ``file``.
+
+    An SDF file keeps its header, with one row, and its trailer. An x3p file keeps its metadata and
+    its revision, and has the profile as its only layer.
+    """
+    heights = np.array(values, dtype=np.float64)
+    if isinstance(file, SdfFile):
+        header = replace(file.header, num_profiles=1, num_points=heights.size, x_scale=step)
+        return SdfFile(header=header, data=heights.reshape(1, -1), trailer=file.trailer)
+    return x3pio.Profile.from_array(
+        heights,
+        x_scale=step,
+        metadata=file.metadata,
+        revision=file.revision,
+        storage=file.storage,
     )
 
 

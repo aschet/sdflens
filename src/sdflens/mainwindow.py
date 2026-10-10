@@ -42,6 +42,7 @@ from .aboutdialog import AboutDialog
 from .camera import Tool
 from .colorbar import ColorBar
 from .colormap import build_lut, colormap_names
+from .convert import profile_file
 from .exporter import Exporter, compose_screenshot
 from .glwidget import RenderMode, SurfaceView
 from .heatmap import HeatmapView
@@ -103,6 +104,7 @@ class MainWindow(QMainWindow):
         self._exporter.message.connect(self.statusBar().showMessage)
         self._heatmap_view.hovered.connect(self._on_hovered)
         self._profile_view.hovered.connect(self._on_hovered)
+        self._profile_view.save_requested.connect(self._save_profile)
 
         self._create_actions()
         self._create_central()
@@ -570,6 +572,18 @@ class MainWindow(QMainWindow):
     def _save_as(self) -> None:
         if self._file is not None:
             self._exporter.save_as(self._file, self._path, self._layer)
+
+    def _save_profile(self) -> None:
+        if self._file is None:
+            return
+        values, step, along_x, number = self._profile_view.current_profile()
+        name = f"{'profile' if along_x else 'column'}_{number}"
+        source = Path(self._path or "surface")
+        self._exporter.save_as(
+            profile_file(self._file, values, step),
+            str(source.with_name(f"{source.stem}_{name}{source.suffix}")),
+            0,
+        )
 
     def _capture(self) -> QImage | None:
         view_image = self._current().grab_image()

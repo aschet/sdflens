@@ -20,6 +20,7 @@ from sdflens.convert import (
     convert_for_export,
     extensions_fit,
     format_problem,
+    profile_file,
     sdf_to_x3p,
     x3p_to_sdf,
 )
@@ -305,3 +306,59 @@ def test_an_x3p_keeps_its_placement_whatever_apply_z_offset_says() -> None:
     assert isinstance(converted, x3pio.X3pFile)
     np.testing.assert_allclose(converted.layers[0].z, make_ramp(), equal_nan=True)
     assert converted.placement == x3p.placement
+
+
+def test_the_profile_of_an_sdf_file_has_one_row_and_keeps_the_header_and_the_trailer() -> None:
+    sdf = make_sdf(make_ramp())
+    sdf.trailer = "OperatorName = Jane\r\n"
+    row = make_ramp()[3]
+
+    profile = profile_file(sdf, row, sdf.header.x_scale)
+
+    assert isinstance(profile, SdfFile)
+    assert (profile.header.num_profiles, profile.header.num_points) == (1, row.size)
+    assert profile.header.manufacturer_id == sdf.header.manufacturer_id
+    assert profile.header.dialect == sdf.header.dialect
+    assert profile.trailer == sdf.trailer
+    np.testing.assert_allclose(profile.data, row.reshape(1, -1), equal_nan=True)
+    assert sdf.data.shape == make_ramp().shape  # the file that is shown is not changed
+
+
+def test_a_column_is_sampled_with_the_step_along_y() -> None:
+    sdf = make_sdf(make_ramp())
+    column = make_ramp()[:, 2]
+
+    profile = profile_file(sdf, column, sdf.header.y_scale)
+
+    assert isinstance(profile, SdfFile)
+    assert profile.header.x_scale == sdf.header.y_scale
+    assert profile.data.shape == (1, column.size)
+
+
+def test_the_profile_of_an_x3p_file_keeps_its_metadata_and_its_revision() -> None:
+    x3p = make_x3p().with_metadata(creator="Jane Doe")
+    row = make_ramp()[1]
+
+    profile = profile_file(x3p, row, 1e-6)
+
+    assert isinstance(profile, x3pio.Profile)
+    assert profile.metadata is not None
+    assert profile.metadata.creator == "Jane Doe"
+    assert profile.revision is x3p.revision
+    assert profile.layers[0].spacing == 1e-6
+    np.testing.assert_allclose(profile.layers[0].z, row, equal_nan=True)
+
+
+def test_a_profile_is_saved_like_a_file_in_every_format() -> None:
+    row = make_ramp()[3]
+    for source in (make_sdf(make_ramp()), make_x3p()):
+        profile = profile_file(source, row, 1e-6)
+
+        as_sdf = convert_file(profile, SdfDialect.ISO_2_0, DataType.BINARY64)
+        as_x3p = convert_file(profile, x3pio.Revision.ISO25178_72_2017_DAM1, x3pio.DataType.FLOAT64)
+
+        assert isinstance(as_sdf, SdfFile)
+        assert as_sdf.data.shape == (1, row.size)
+        assert isinstance(as_x3p, x3pio.X3pFile)
+        np.testing.assert_allclose(as_sdf.data[0], row, atol=1e-12, equal_nan=True)
+        np.testing.assert_allclose(as_x3p.layers[0].z, row, atol=1e-12, equal_nan=True)

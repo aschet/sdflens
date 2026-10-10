@@ -510,6 +510,59 @@ def test_a_right_click_on_a_vendor_extension_shows_the_menu_with_save_as(tmp_pat
     window.close()
 
 
+def test_the_profile_view_has_a_button_to_save_the_shown_profile(
+    ramp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Exporter, "_ask_save_as", lambda *args: ("", ""))  # cancel the dialog
+    window = MainWindow()
+    view = window._profile_view
+    button = view._save
+
+    assert not button.isEnabled()  # nothing is shown yet
+    assert button.toolTip() == "Save profile as..."
+    assert not button.icon().isNull()
+    _load(window, ramp_path)
+    assert button.isEnabled()
+    requested: list[bool] = []
+    view.save_requested.connect(lambda: requested.append(True))
+    button.click()
+    assert requested == [True]
+    window.close()
+
+
+def test_the_shown_profile_is_saved_like_a_file(
+    ramp_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    window = MainWindow()
+    _load(window, ramp_path)
+    view = window._profile_view
+    monkeypatch.setattr(SaveOptionsDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
+
+    view._spin.setValue(3)  # the third row, along x
+    target = tmp_path / "row.sdf"
+    seen = _fake_file_dialog(monkeypatch, target, "Surface data file (*.sdf)")
+    view.save_requested.emit()
+
+    assert seen[0][0] == "ramp_profile_3.sdf"  # the name suggested in the file dialog
+    row = sdfio.read(target)
+    assert (row.header.num_profiles, row.header.num_points) == (1, make_ramp().shape[1])
+    np.testing.assert_allclose(row.data[0], make_ramp()[2], atol=1e-9, equal_nan=True)
+    assert row.header.x_scale == 1e-6
+
+    view._direction.setCurrentIndex(1)  # along y
+    view._spin.setValue(5)  # the fifth column
+    target = tmp_path / "column.x3p"
+    seen = _fake_file_dialog(monkeypatch, target, "x3p file (*.x3p)")
+    view.save_requested.emit()
+
+    assert seen[0][0] == "ramp_column_5.sdf"
+    column = x3pio.read(target)
+    assert isinstance(column, x3pio.Profile)
+    assert column.layers[0].spacing == 2e-6  # the step along y
+    np.testing.assert_allclose(column.layers[0].z, make_ramp()[:, 4], atol=1e-9, equal_nan=True)
+    window.close()
+
+
 def test_export_and_copy_of_an_sdf_file_act_on_the_information(ramp_path: Path) -> None:
     window = MainWindow()
     _load(window, ramp_path)

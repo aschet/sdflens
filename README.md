@@ -14,7 +14,7 @@ x3p files (`.x3p`), built on [sdfio](https://github.com/aschet/sdfio),
 - 3D, 2D and profile views, and a selector for the layers of an x3p file.
 - Selectable, reversible colormaps with a color bar; non-measured points are left empty.
 - Shows and exports the metadata; vendor extensions of x3p files can be saved.
-- Saves files as SDF or x3p, with conversion between the formats.
+- Saves files, or the shown profile, as SDF or x3p, with conversion between the formats.
 - Screenshots as PNG file or on the clipboard.
 
 Try it with the sample [samples/microlens-array.sdf](samples/microlens-array.sdf).
