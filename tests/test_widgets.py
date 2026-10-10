@@ -13,7 +13,17 @@ import numpy as np
 import pytest
 import sdfio
 import x3pio
-from PySide6.QtCore import QDir, QEventLoop, QPoint, QPointF, QSize, QStandardPaths, Qt, QTimer
+from PySide6.QtCore import (
+    QDir,
+    QEvent,
+    QEventLoop,
+    QPoint,
+    QPointF,
+    QSize,
+    QStandardPaths,
+    Qt,
+    QTimer,
+)
 from PySide6.QtGui import QGuiApplication, QIcon, QImage, QKeySequence, QPalette
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtTest import QTest
@@ -48,7 +58,7 @@ from sdflens.infopanel import format_metadata, metadata_rows
 from sdflens.loader import Loader
 from sdflens.mainwindow import MainWindow
 from sdflens.mesh import SurfaceMesh
-from sdflens.profileview import ProfileView, envelope
+from sdflens.profileview import ProfileView, connect, envelope
 from sdflens.surface import SurfaceModel
 from sdflens.zscalebar import ZScaleBar
 
@@ -130,6 +140,15 @@ def test_envelope_reports_low_and_high_per_column_and_skips_gaps() -> None:
     assert envelope(values, 10.0, 12.0, 4)[0].size == 0  # right of the data
 
 
+def test_connect_closes_the_gaps_between_adjacent_columns_only() -> None:
+    columns = np.array([0, 1, 2, 4])
+    low, high = connect(columns, np.array([0.0, 5.0, 1.0, 9.0]), np.array([1.0, 6.0, 2.0, 9.0]))
+
+    assert low.tolist() == [0.0, 2.0, 1.0, 9.0]  # the third column lies below the second
+    assert high.tolist() == [5.0, 6.0, 2.0, 9.0]  # the first lies below the second
+    # Columns 2 and 4 are not adjacent, so the gap between them stays.
+
+
 def test_profile_view_selects_profiles_and_columns() -> None:
     model = SurfaceModel.from_sdf(make_sdf(make_ramp(), x_scale=1e-6, y_scale=2e-6))
     view = ProfileView()
@@ -169,6 +188,26 @@ def test_profile_view_reports_the_point_under_the_cursor() -> None:
     assert texts[2] == ""
 
 
+@pytest.mark.parametrize("count", [5, 5000])
+def test_profile_plot_marks_the_point_under_the_cursor(count: int) -> None:
+    data = np.random.default_rng(1).random((1, count)) * 1e-6
+    data[0, 1] = np.nan
+    view = ProfileView()
+    view.set_model(SurfaceModel.from_sdf(make_sdf(data)))
+    view.resize(500, 300)
+    plot = view._plot
+
+    assert _marker_pixels(view.grab_image()) == 0
+    plot._set_hover(2)
+    assert _marker_pixels(view.grab_image()) > 3
+    plot._set_hover(1)  # not measured
+    assert _marker_pixels(view.grab_image()) == 0
+    plot._set_hover(2)
+    plot.leaveEvent(QEvent(QEvent.Type.Leave))
+    assert plot._hover == -1
+    assert _marker_pixels(view.grab_image()) == 0
+
+
 def test_profile_plot_zooms_and_pans_within_the_data() -> None:
     view = ProfileView()
     view.set_model(SurfaceModel.from_sdf(make_sdf(np.zeros((2, 100)))))
@@ -185,6 +224,16 @@ def test_profile_plot_zooms_and_pans_within_the_data() -> None:
     assert plot._x0 == pytest.approx(-0.5 * step)
     view.home()
     assert plot._span == pytest.approx(full)
+
+
+def _marker_pixels(image: QImage) -> int:
+    count = 0
+    for y in range(image.height()):
+        for x in range(image.width()):
+            color = image.pixelColor(x, y)
+            if (color.red(), color.green(), color.blue()) == (230, 120, 20):
+                count += 1
+    return count
 
 
 def _blue_pixels(image: QImage) -> int:

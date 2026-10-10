@@ -18,6 +18,7 @@ from PySide6.QtGui import (
     QMouseEvent,
     QPainter,
     QPaintEvent,
+    QPen,
     QPolygonF,
     QStandardItemModel,
     QWheelEvent,
@@ -38,7 +39,7 @@ from .icons import load_icon
 from .surface import SurfaceModel
 from .units import format_length, format_tick, nice_ticks, unit_for
 
-__all__ = ["ProfileView", "envelope"]
+__all__ = ["ProfileView", "connect", "envelope"]
 
 _LEFT = 64
 _TOP = 8
@@ -47,8 +48,9 @@ _BOTTOM = 28
 _TICK_LENGTH = 4
 _ZOOM_STEP = 1.2
 _MIN_POINTS = 3  # the closest zoom shows this many points
-_MARKER_SPACING = 6.0  # pixels between points from which the points get markers
+_MARKER_RADIUS = 4.5  # of the marker on the point under the cursor
 _LINE_COLOR = QColor(47, 111, 176)
+_MARKER_COLOR = QColor(230, 120, 20)
 
 
 def envelope(
@@ -75,6 +77,25 @@ def envelope(
     return filled[measured], low[measured], high[measured]
 
 
+def connect(
+    columns: NDArray[np.intp], low: NDArray[np.float64], high: NDArray[np.float64]
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Return ``low`` and ``high`` extended so that each column touches the next adjacent one.
+
+    >>> columns = np.array([0, 1, 3])
+    >>> low, high = connect(columns, np.array([0.0, 4.0, 9.0]), np.array([1.0, 6.0, 9.0]))
+    >>> low.tolist(), high.tolist()
+    ([0.0, 4.0, 9.0], [4.0, 6.0, 9.0])
+    """
+    low, high = low.copy(), high.copy()
+    adjacent = np.diff(columns) == 1
+    above = adjacent & (high[:-1] < low[1:])
+    below = adjacent & (low[:-1] > high[1:])
+    high[:-1] = np.where(above, low[1:], high[:-1])
+    low[:-1] = np.where(below, high[1:], low[:-1])
+    return low, high
+
+
 class _Plot(QWidget):
     """Height against position for one series; drag pans and the wheel zooms along x."""
 
@@ -91,12 +112,14 @@ class _Plot(QWidget):
         self._tool = Tool.PAN
         self._drag_tool: Tool | None = None
         self._last_pos = QPointF()
+        self._hover = -1  # index of the point under the cursor
         self.setMouseTracking(True)
 
     def set_series(self, values: NDArray[np.float64], step: float, axis: str) -> None:
         """Show ``values`` spaced ``step`` meters apart; a same-sized series keeps the zoom."""
         same = len(values) == len(self._values) and step == self._step
         self._values, self._step, self._axis = values, step, axis
+        self._hover = -1
         if same:
             self.update()
         else:
@@ -162,11 +185,13 @@ class _Plot(QWidget):
 
         painter.save()
         painter.setClipRect(plot)
-        painter.setPen(_LINE_COLOR)
+        # The square cap draws a column that has a single point as a dot of one pixel.
+        painter.setPen(QPen(_LINE_COLOR, 1.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.SquareCap))
         if (last - first) / plot.width() >= 1.0:
             self._draw_envelope(painter, plot, first, last, z_lo, z_hi)
         else:
             self._draw_points(painter, plot, start, visible, z_lo, z_hi)
+        self._draw_hover(painter, plot, z_lo, z_hi)
         painter.restore()
         self._draw_rulers(painter, plot, x_lo, x_hi, z_lo, z_hi)
 
@@ -184,6 +209,7 @@ class _Plot(QWidget):
         self, painter: QPainter, plot: QRect, first: float, last: float, z_lo: float, z_hi: float
     ) -> None:
         columns, low, high = envelope(self._values, first, last, plot.width())
+        low, high = connect(columns, low, high)
         bottom, factor = plot.top() + plot.height(), plot.height() / (z_hi - z_lo)
         lines = [
             QLineF(
@@ -216,9 +242,17 @@ class _Plot(QWidget):
                 for x, y in zip(px[begin:end].tolist(), py[begin:end].tolist(), strict=True)
             ]
             painter.drawPolyline(QPolygonF(points))
-            if self._step / self._span * plot.width() >= _MARKER_SPACING:
-                for point in points:
-                    painter.drawEllipse(point, 2.0, 2.0)
+
+    def _draw_hover(self, painter: QPainter, plot: QRect, z_lo: float, z_hi: float) -> None:
+        """Mark the point under the cursor, if it is measured."""
+        if not 0 <= self._hover < len(self._values) or not math.isfinite(self._values[self._hover]):
+            return
+        x = plot.left() + (self._hover * self._step - self._x0) / self._span * plot.width()
+        y = plot.bottom() + 1 - (self._values[self._hover] - z_lo) / (z_hi - z_lo) * plot.height()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(self.palette().window().color(), 1.5))
+        painter.setBrush(_MARKER_COLOR)
+        painter.drawEllipse(QPointF(x, y), _MARKER_RADIUS, _MARKER_RADIUS)
 
     def _draw_rulers(
         self, painter: QPainter, plot: QRect, x_lo: float, x_hi: float, z_lo: float, z_hi: float
@@ -267,12 +301,13 @@ class _Plot(QWidget):
         else:
             return
         self._last_pos = event.position()
+        self._set_hover(-1)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         """Pan or zoom while dragging, otherwise report the point under the cursor."""
         pos = event.position()
         if self._drag_tool is None:
-            self.point_hovered.emit(self._index_at(pos))
+            self._set_hover(self._index_at(pos))
             return
         plot = self._plot_rect()
         dx, dy = pos.x() - self._last_pos.x(), pos.y() - self._last_pos.y()
@@ -290,12 +325,19 @@ class _Plot(QWidget):
         self._drag_tool = None
 
     def leaveEvent(self, event: QEvent) -> None:
-        """Clear the hover readout."""
-        self.point_hovered.emit(-1)
+        """Clear the hover marker and readout."""
+        self._set_hover(-1)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         """Zoom about the cursor."""
         self._zoom_at(_ZOOM_STEP ** (event.angleDelta().y() / 120.0), event.position().x() - _LEFT)
+        self._set_hover(self._index_at(event.position()))
+
+    def _set_hover(self, index: int) -> None:
+        if index != self._hover:
+            self._hover = index
+            self.update()
+        self.point_hovered.emit(index)
 
 
 class ProfileView(QWidget):
