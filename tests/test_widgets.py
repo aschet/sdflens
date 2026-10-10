@@ -1183,3 +1183,162 @@ def test_save_as_reports_a_point_cloud_that_cannot_be_an_sdf_file(
     assert len(messages) == 1
     assert not (tmp_path / "cloud.sdf").exists()
     window.close()
+
+
+def _layered_path(tmp_path: Path, *layers: np.ndarray) -> Path:
+    path = tmp_path / "layers.x3p"
+    x3pio.Surface.from_array(np.stack(layers), x_scale=1e-6, y_scale=2e-6).save(path)
+    return path
+
+
+def _choose_layer(window: MainWindow, number: int) -> None:
+    window._layer_spin.setValue(number)
+    _wait_for(window._loader.layer_loaded, window._loader.layer_failed)
+
+
+def test_the_layer_selector_is_shown_only_for_a_file_of_several_layers(tmp_path: Path) -> None:
+    window = MainWindow()
+    assert not any(control.isVisible() for control in window._layer_controls)
+    single = tmp_path / "single.x3p"
+    make_x3p().save(single)
+    _load(window, single)
+
+    assert not any(control.isVisible() for control in window._layer_controls)
+    assert not window._next_layer_action.isEnabled()
+
+    _load(window, _layered_path(tmp_path, make_ramp(), make_ramp(), make_ramp()))
+
+    assert all(control.isVisible() for control in window._layer_controls)
+    assert window._layer_spin.value() == 1
+    assert window._layer_spin.maximum() == 3
+    assert window._layer_spin.suffix() == " of 3"
+    assert window._next_layer_action.isEnabled()
+    window.close()
+
+
+def test_a_layer_is_shown_in_every_view_with_its_own_color_range(tmp_path: Path) -> None:
+    window = MainWindow()
+    _load(window, _layered_path(tmp_path, make_ramp(), 10.0 * make_ramp()))
+    first = window._model
+    assert isinstance(first, SurfaceModel)
+    assert window._colorbar._range == first.value_range
+
+    _choose_layer(window, 2)
+
+    second = window._model
+    assert isinstance(second, SurfaceModel)
+    assert window._layer == 1
+    assert second.value_range.hi == pytest.approx(10.0 * first.value_range.hi)
+    assert window._colorbar._range == second.value_range  # a range for each layer
+    assert window._heatmap_view._model is second
+    assert window._profile_view._model is second
+    assert window._surface_view._model is second
+    assert "layer 2 of 2" in window._stats_label.text()
+    _choose_layer(window, 1)
+    assert window._model is not None
+    assert window._model.value_range == first.value_range
+    assert "layer 1 of 2" in window._stats_label.text()
+    window.close()
+
+
+def test_changing_the_layer_keeps_the_zoom_the_camera_and_the_profile(tmp_path: Path) -> None:
+    window = MainWindow()
+    _load(window, _layered_path(tmp_path, make_ramp(), make_ramp() + 1e-9))
+    window._heatmap_view.zoom_in()
+    window._surface_view._camera.azimuth = 12.0
+    window._profile_view._spin.setValue(3)
+
+    _choose_layer(window, 2)
+
+    assert not window._heatmap_view._fitted
+    assert window._surface_view._camera.azimuth == 12.0
+    assert window._profile_view._spin.value() == 3
+    window.close()
+
+
+def test_a_new_file_starts_at_the_first_layer(tmp_path: Path) -> None:
+    window = MainWindow()
+    _load(window, _layered_path(tmp_path, make_ramp(), make_ramp(), make_ramp()))
+    _choose_layer(window, 3)
+    assert window._layer == 2
+
+    _load(window, _layered_path(tmp_path, make_ramp(), make_ramp()))
+
+    assert window._layer == 0
+    assert window._layer_spin.value() == 1
+    assert window._layer_spin.maximum() == 2
+    window.close()
+
+
+def test_the_previous_and_the_next_layer_actions_step_through_the_layers(tmp_path: Path) -> None:
+    window = MainWindow()
+    _load(window, _layered_path(tmp_path, make_ramp(), make_ramp(), make_ramp()))
+
+    window._next_layer_action.trigger()
+    _wait_for(window._loader.layer_loaded)
+    assert window._layer == 1
+    window._previous_layer_action.trigger()
+    _wait_for(window._loader.layer_loaded)
+    assert window._layer == 0
+    window._previous_layer_action.trigger()  # the first layer has no previous one
+    assert window._layer_spin.value() == 1
+    window.close()
+
+
+def test_the_last_choice_wins_while_a_layer_is_being_built(tmp_path: Path) -> None:
+    window = MainWindow()
+    _load(window, _layered_path(tmp_path, make_ramp(), make_ramp(), make_ramp()))
+
+    window._layer_spin.setValue(2)  # starts building the second layer
+    window._layer_spin.setValue(3)  # asked for while it is built
+    window._layer_spin.setValue(1)  # and back again before it is done
+    while window._loader.busy:
+        _wait_for(window._loader.layer_loaded, timeout_ms=2000)
+
+    assert window._layer == 0
+    assert window._layer_spin.value() == 1
+    window.close()
+
+
+def test_a_layer_without_measured_points_is_refused(tmp_path: Path) -> None:
+    window = MainWindow()
+    _load(window, _layered_path(tmp_path, make_ramp(), np.full(make_ramp().shape, np.nan)))
+
+    _choose_layer(window, 2)
+
+    assert window._layer == 0
+    assert window._layer_spin.value() == 1  # back at the layer that is shown
+    assert "Layer 2" in window.statusBar().currentMessage()
+    assert "no measured points" in window.statusBar().currentMessage()
+    window.close()
+
+
+def test_the_chosen_layer_is_saved_as_an_sdf_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    window = MainWindow()
+    path = _layered_path(tmp_path, make_ramp(), 10.0 * make_ramp())
+    _load(window, path)
+    _choose_layer(window, 2)
+    target = tmp_path / "second.sdf"
+    asked: list[int] = []
+
+    def fake_save_as(file: object, source: object, layer: int = 0) -> None:
+        asked.append(layer)
+        window._exporter.write_export(
+            file,  # type: ignore[arg-type]
+            str(target),
+            sdfio.SdfDialect.ISO_2_0,
+            sdfio.DataType.BINARY64,
+            sdfio.FileFormat.BINARY,
+            layer,
+        )
+
+    monkeypatch.setattr(window._exporter, "save_as", fake_save_as)
+    window._save_as_action.trigger()
+
+    assert asked == [1]
+    np.testing.assert_allclose(
+        sdfio.read(target).data, 10.0 * make_ramp(), atol=1e-8, equal_nan=True
+    )
+    window.close()

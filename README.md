@@ -11,7 +11,7 @@ x3p files (`.x3p`), built on [sdfio](https://github.com/aschet/sdfio),
 ## Features
 
 - Opens ISO 25178-71 SDF and ISO 25178-72 x3p files.
-- 3D, 2D and profile views.
+- 3D, 2D and profile views, and a selector for the layers of an x3p file.
 - Selectable, reversible colormaps with a color bar; non-measured points are left empty.
 - Shows and exports the metadata; vendor extensions of x3p files can be saved.
 - Saves files as SDF or x3p, with conversion between the formats.

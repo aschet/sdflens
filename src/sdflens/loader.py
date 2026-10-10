@@ -10,7 +10,7 @@ from PySide6.QtCore import QCoreApplication, QObject, QRunnable, QThreadPool, Si
 from x3pio import X3pChecksumError
 
 from .surface import NoMeasuredPointsError
-from .surfacefile import FILE_ERRORS, build_mesh, build_model, read_surface_file
+from .surfacefile import FILE_ERRORS, SurfaceFile, build_mesh, build_model, read_surface_file
 
 __all__ = ["Loader"]
 
@@ -18,6 +18,30 @@ __all__ = ["Loader"]
 class _Signals(QObject):
     loaded = Signal(str, object, object, object, bool)
     failed = Signal(str, str)
+    layer_loaded = Signal(int, object, object)
+    layer_failed = Signal(int, str)
+
+
+class _LayerTask(QRunnable):
+    """Builds the model and the mesh of one layer; touches no Qt objects but its signals."""
+
+    def __init__(self, file: SurfaceFile, layer: int, signals: _Signals) -> None:
+        super().__init__()
+        self._file = file
+        self._layer = layer
+        self._signals = signals
+
+    def run(self) -> None:
+        try:
+            model = build_model(self._file, self._layer)
+            mesh = build_mesh(model)
+        except NoMeasuredPointsError:
+            message = QCoreApplication.translate("Loader", "The layer contains no measured points")
+            self._signals.layer_failed.emit(self._layer, message)
+        except FILE_ERRORS as error:
+            self._signals.layer_failed.emit(self._layer, str(error))
+        else:
+            self._signals.layer_loaded.emit(self._layer, model, mesh)
 
 
 class _Task(QRunnable):
@@ -59,6 +83,10 @@ class Loader(QObject):
 
     loaded = Signal(str, object, object, object, bool)
     failed = Signal(str, str)
+    #: ``layer_loaded(layer, model, mesh)`` and ``layer_failed(layer, message)`` answer
+    #: :meth:`load_layer`, with the layer counted from 0.
+    layer_loaded = Signal(int, object, object)
+    layer_failed = Signal(int, str)
 
     def __init__(self, parent: QObject | None = None) -> None:
         """Create an idle loader."""
@@ -68,6 +96,8 @@ class Loader(QObject):
         self._signals = _Signals(self)
         self._signals.loaded.connect(self._on_loaded)
         self._signals.failed.connect(self._on_failed)
+        self._signals.layer_loaded.connect(self._on_layer_loaded)
+        self._signals.layer_failed.connect(self._on_layer_failed)
         self._busy = False
 
     @property
@@ -82,6 +112,25 @@ class Loader(QObject):
         self._busy = True
         self._pool.start(_Task(path, self._signals))
         return True
+
+    def load_layer(self, file: SurfaceFile, layer: int) -> bool:
+        """Build the model and the mesh of ``layer`` of the loaded ``file``, counted from 0.
+
+        Returns ``False`` if a load is already in progress.
+        """
+        if self._busy:
+            return False
+        self._busy = True
+        self._pool.start(_LayerTask(file, layer, self._signals))
+        return True
+
+    def _on_layer_loaded(self, layer: int, model: object, mesh: object) -> None:
+        self._busy = False
+        self.layer_loaded.emit(layer, model, mesh)
+
+    def _on_layer_failed(self, layer: int, message: str) -> None:
+        self._busy = False
+        self.layer_failed.emit(layer, message)
 
     def _on_loaded(
         self, path: str, file: object, model: object, mesh: object, checksum_failed: bool

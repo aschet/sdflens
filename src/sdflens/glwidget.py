@@ -149,12 +149,18 @@ class SurfaceView(QOpenGLWidget):
         self._index_buffer: QOpenGLBuffer | None = None
         self._texture: QOpenGLTexture | None = None
 
-    def set_surface(self, model: Model3D, mesh: SurfaceMesh) -> None:
-        """Show ``mesh`` of ``model`` and reset the camera."""
+    def set_surface(self, model: Model3D, mesh: SurfaceMesh, *, keep_view: bool = False) -> None:
+        """Show ``mesh`` of ``model`` and reset the camera, unless ``keep_view`` keeps it.
+
+        Another layer of the same file is shown with ``keep_view``, so that the view stays.
+        """
         self._model = model
         self._mesh = mesh
         self._geometry_dirty = True
-        self._camera.fit(self._scene_radius())
+        if keep_view:
+            self._camera.set_radius(self._scene_radius())
+        else:
+            self._camera.fit(self._scene_radius())
         self.update()
 
     def set_lut(self, lut: NDArray[np.uint8]) -> None:

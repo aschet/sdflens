@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QStackedWidget,
     QToolBar,
     QVBoxLayout,
@@ -52,7 +53,7 @@ from .pointcloud import PointCloudModel
 from .profileview import ProfileView
 from .settings import Settings
 from .surface import Model3D, SurfaceModel
-from .surfacefile import SurfaceFile
+from .surfacefile import SurfaceFile, layer_count
 from .units import format_values
 from .viewport import Viewport
 from .zscalebar import ZScaleBar
@@ -75,6 +76,8 @@ class MainWindow(QMainWindow):
         self._model: SurfaceModel | PointCloudModel | None = None
         self._view_preference = _VIEW_3D
         self._path: str | None = None
+        self._layer = 0  # the layer that is shown, counted from 0
+        self._pending_layer: int | None = None  # a layer to show once the one being built is done
 
         self._surface_view = SurfaceView(self)
         self._heatmap_view = HeatmapView(self)
@@ -94,6 +97,8 @@ class MainWindow(QMainWindow):
         self._loader = Loader(self)
         self._loader.loaded.connect(self._on_loaded)
         self._loader.failed.connect(self._on_failed)
+        self._loader.layer_loaded.connect(self._on_layer_loaded)
+        self._loader.layer_failed.connect(self._on_layer_failed)
         self._exporter = Exporter(self, self._settings)
         self._exporter.message.connect(self.statusBar().showMessage)
         self._heatmap_view.hovered.connect(self._on_hovered)
@@ -270,6 +275,24 @@ class MainWindow(QMainWindow):
         self._colormap_combo.addItems(colormap_names())
         self._colormap_combo.currentTextChanged.connect(self._apply_colormap)
 
+        # The layers of a file are numbered; the format gives them no names.
+        self._layer_spin = QSpinBox(self)
+        self._layer_spin.setRange(1, 1)
+        self._layer_spin.setToolTip(self.tr("Layer to show"))
+        self._layer_spin.valueChanged.connect(self._on_layer_chosen)
+        self._previous_layer_action = self._action(
+            self.tr("Pre&vious layer"), None, self.tr("Ctrl+Up", "shortcut")
+        )
+        self._previous_layer_action.triggered.connect(
+            lambda: self._layer_spin.setValue(self._layer_spin.value() - 1)
+        )
+        self._next_layer_action = self._action(
+            self.tr("&Next layer"), None, self.tr("Ctrl+Down", "shortcut")
+        )
+        self._next_layer_action.triggered.connect(
+            lambda: self._layer_spin.setValue(self._layer_spin.value() + 1)
+        )
+
     def _action(
         self,
         text: str,
@@ -361,6 +384,9 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self._view_profile_action)
         view_menu.addAction(self._info_toggle_action)
         view_menu.addSeparator()
+        view_menu.addAction(self._previous_layer_action)
+        view_menu.addAction(self._next_layer_action)
+        view_menu.addSeparator()
         view_menu.addAction(self._home_action)
         view_menu.addAction(self._zoom_in_action)
         view_menu.addAction(self._zoom_out_action)
@@ -401,6 +427,14 @@ class MainWindow(QMainWindow):
         main.addWidget(QLabel(self.tr("Colormap:"), self))
         main.addWidget(self._colormap_combo)
         main.addAction(self._reverse_action)
+        # The layer selector is shown only for a file of several layers.
+        self._layer_controls = [
+            main.addSeparator(),
+            main.addWidget(QLabel(self.tr("Layer:"), self)),
+            main.addWidget(self._layer_spin),
+        ]
+        for control in self._layer_controls:
+            control.setVisible(False)
         self.addToolBar(main)
 
         self._z_bar = ZScaleBar(self)
@@ -529,7 +563,7 @@ class MainWindow(QMainWindow):
 
     def _save_as(self) -> None:
         if self._file is not None:
-            self._exporter.save_as(self._file, self._path)
+            self._exporter.save_as(self._file, self._path, self._layer)
 
     def _capture(self) -> QImage | None:
         view_image = self._current().grab_image()
@@ -575,13 +609,16 @@ class MainWindow(QMainWindow):
         self._file = file
         self._model = model
         self._path = path
+        self._layer = 0
+        self._pending_layer = None
+        self._configure_layers(layer_count(file))
         self._surface_view.set_surface(model, mesh)
         grid = model if isinstance(model, SurfaceModel) else None
         self._heatmap_view.set_model(grid)
         self._profile_view.set_model(grid)
         self._colorbar.set_range(model.value_range, model.invalid_count > 0)
         self._info_panel.set_file(file)
-        self._stats_label.setText(self._summary(model, mesh))
+        self._stats_label.setText(self._stats_text(model, mesh))
         self._z_bar.set_factor(1.0)
         self._set_view_mode(self._view_preference if grid is not None else _VIEW_3D)
         self._update_title(path)
@@ -596,6 +633,64 @@ class MainWindow(QMainWindow):
             )
         else:
             self.statusBar().showMessage(self.tr("Loaded {name}").format(name=name), 2000)
+
+    def _configure_layers(self, count: int) -> None:
+        """Set the layer selector for a file of ``count`` layers, showing it for several."""
+        self._layer_spin.blockSignals(True)
+        self._layer_spin.setRange(1, max(count, 1))
+        self._layer_spin.setValue(1)
+        self._layer_spin.setSuffix(self.tr(" of {count}").format(count=count))
+        self._layer_spin.blockSignals(False)
+        for control in self._layer_controls:
+            control.setVisible(count > 1)
+        for action in (self._previous_layer_action, self._next_layer_action):
+            action.setEnabled(count > 1)
+
+    def _stats_text(self, model: Model3D, mesh: SurfaceMesh) -> str:
+        """Return the size and, for a file of several layers, the layer that is shown."""
+        text = self._summary(model, mesh)
+        if self._file is not None and layer_count(self._file) > 1:
+            return self.tr("layer {number} of {count}, {text}").format(
+                number=self._layer + 1, count=layer_count(self._file), text=text
+            )
+        return text
+
+    def _on_layer_chosen(self, number: int) -> None:
+        """Show the layer the user chose, counted from 1, or as soon as the one being built is."""
+        index = number - 1
+        if self._file is None:
+            return
+        if self._loader.busy:
+            self._pending_layer = index
+        elif index != self._layer:
+            self._loader.load_layer(self._file, index)
+
+    def _on_layer_loaded(
+        self, layer: int, model: SurfaceModel | PointCloudModel, mesh: SurfaceMesh
+    ) -> None:
+        """Show another layer of the file in every view, keeping the zoom and the camera."""
+        self._layer = layer
+        self._model = model
+        self._surface_view.set_surface(model, mesh, keep_view=True)
+        grid = model if isinstance(model, SurfaceModel) else None
+        self._heatmap_view.set_model(grid, keep_view=True)
+        self._profile_view.set_model(grid, keep_selection=True)
+        self._colorbar.set_range(model.value_range, model.invalid_count > 0)
+        self._stats_label.setText(self._stats_text(model, mesh))
+        self._update_actions()
+        wanted, self._pending_layer = self._pending_layer, None
+        if wanted is not None and wanted != layer and self._file is not None:
+            self._loader.load_layer(self._file, wanted)
+
+    def _on_layer_failed(self, layer: int, message: str) -> None:
+        """Say why a layer cannot be shown, and go back to the one that is."""
+        self._pending_layer = None
+        self._layer_spin.blockSignals(True)
+        self._layer_spin.setValue(self._layer + 1)
+        self._layer_spin.blockSignals(False)
+        self.statusBar().showMessage(
+            self.tr("Layer {number}: {message}").format(number=layer + 1, message=message), 8000
+        )
 
     def _on_failed(self, path: str, message: str) -> None:
         QApplication.restoreOverrideCursor()

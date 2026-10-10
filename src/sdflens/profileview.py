@@ -334,9 +334,16 @@ class ProfileView(QWidget):
         self._plot.point_hovered.connect(self._on_point_hovered)
         self._configure(1)
 
-    def set_model(self, model: SurfaceModel | None) -> None:
-        """Show the first profile of ``model`` (or nothing), along x."""
+    def set_model(self, model: SurfaceModel | None, *, keep_selection: bool = False) -> None:
+        """Show the first profile of ``model`` (or nothing), along x.
+
+        With ``keep_selection``, ``model`` has the shape of the one before, and the direction and
+        the number of the profile stay.
+        """
         self._model = model
+        if keep_selection:
+            self._show()
+            return
         self._direction.blockSignals(True)
         self._direction.setCurrentIndex(0)
         self._direction.blockSignals(False)

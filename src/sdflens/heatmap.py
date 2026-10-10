@@ -84,11 +84,14 @@ class HeatmapView(QWidget):
         self._last_pos = QPointF()
         self.setMouseTracking(True)
 
-    def set_model(self, model: SurfaceModel | None) -> None:
-        """Show ``model`` (or nothing) fitted into the view."""
+    def set_model(self, model: SurfaceModel | None, *, keep_view: bool = False) -> None:
+        """Show ``model`` (or nothing) fitted into the view, unless ``keep_view`` keeps the view."""
         self._model = model
         self._rebuild_image()
-        self.home()
+        if keep_view:
+            self.update()
+        else:
+            self.home()
 
     def set_lut(self, lut: NDArray[np.uint8]) -> None:
         """Set the ``(256, 3)`` color lookup table."""
