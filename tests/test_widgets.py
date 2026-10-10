@@ -7,6 +7,7 @@ from __future__ import annotations
 import io
 import zipfile
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
@@ -23,6 +24,8 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
+    QLabel,
     QMenu,
     QMessageBox,
     QPushButton,
@@ -1235,13 +1238,34 @@ def test_an_irregular_surface_is_drawn_as_a_surface_in_3d_only(tmp_path: Path) -
     window.close()
 
 
+def test_the_save_dialog_has_an_accelerator_for_each_field_and_each_option() -> None:
+    layered = x3pio.Surface.from_array(
+        np.stack([make_ramp(), make_ramp()]), x_scale=1e-6, y_scale=2e-6
+    )
+    placed = make_placed_x3p(make_ramp(), make_ramp())
+    dialog = SaveOptionsDialog(placed, is_x3p=False)
+    layout = cast(QFormLayout, dialog.layout())
+    fields = (dialog._version, dialog._encoding, dialog._data_type)
+
+    labels = [cast(QLabel, layout.labelForField(field)) for field in fields]
+    assert [label.buddy() for label in labels] == list(fields)  # the accelerator focuses the field
+    texts = [label.text() for label in labels] + [
+        dialog._single_layer.text(),
+        dialog._z_offset.text(),
+    ]
+    keys = [text[text.index("&") + 1].lower() for text in texts]
+    assert keys == ["v", "e", "d", "o", "z"]
+    assert len(set(keys)) == len(keys)  # no accelerator is used twice
+    assert SaveOptionsDialog(layered, is_x3p=True)._single_layer.text().count("&") == 1
+
+
 def test_the_save_dialog_offers_a_single_layer_for_an_x3p_file_of_layers_only() -> None:
     layers = np.stack([make_ramp(), make_ramp() + 1.0, make_ramp() + 2.0])
     layered = x3pio.Surface.from_array(layers, x_scale=1e-6, y_scale=2e-6)
 
     dialog = SaveOptionsDialog(layered, is_x3p=True, layer=1)
     assert dialog._single_layer.isVisibleTo(dialog)
-    assert dialog._single_layer.text() == "Save only the current layer"
+    assert dialog._single_layer.text() == "Save &only the current layer"
     assert not dialog.single_layer  # everything is saved unless it is asked for
     dialog._single_layer.setChecked(True)
     assert dialog.single_layer
@@ -1258,7 +1282,7 @@ def test_the_save_dialog_offers_the_z_offset_only_for_an_sdf_file_of_a_placed_x3
 
     dialog = SaveOptionsDialog(placed, is_x3p=False)
     assert dialog._z_offset.isVisibleTo(dialog)
-    assert dialog._z_offset.text() == "Add the z offset to the heights"
+    assert dialog._z_offset.text() == "Add the &z offset to the heights"
     assert not dialog.apply_z_offset  # the heights are saved as they are unless it is asked for
     dialog._z_offset.setChecked(True)
     assert dialog.apply_z_offset

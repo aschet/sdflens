@@ -98,9 +98,9 @@ class SaveOptionsDialog(QDialog):
 
         # An x3p file keeps all its layers unless the user asks for the one that is shown.
         layers = len(file.layers) if isinstance(file, x3pio.X3pFile) else 1
-        self._single_layer = QCheckBox(self.tr("Save only the current layer"), self)
+        self._single_layer = QCheckBox(self.tr("Save &only the current layer"), self)
         self._single_layer.setVisible(is_x3p and layers > 1)
-        self._z_offset = QCheckBox(self.tr("Add the z offset to the heights"), self)
+        self._z_offset = QCheckBox(self.tr("Add the &z offset to the heights"), self)
         self._z_offset.setVisible(offset != 0.0)
 
         self._note = QLabel(self)
@@ -112,9 +112,9 @@ class SaveOptionsDialog(QDialog):
         self._buttons.rejected.connect(self.reject)
         layout = QFormLayout(self)
         layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)  # follows the note
-        layout.addRow(self.tr("Version:"), self._version)
-        layout.addRow(self.tr("Encoding:"), self._encoding)
-        layout.addRow(self.tr("Data type:"), self._data_type)
+        layout.addRow(self.tr("&Version:"), self._version)
+        layout.addRow(self.tr("&Encoding:"), self._encoding)
+        layout.addRow(self.tr("&Data type:"), self._data_type)
         layout.addRow(self._single_layer)
         layout.addRow(self._z_offset)
         layout.addRow(self._note)
