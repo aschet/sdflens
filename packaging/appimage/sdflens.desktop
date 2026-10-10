@@ -5,7 +5,7 @@
 [Desktop Entry]
 Type=Application
 Name=sdflens
-Comment=View ISO 25178 SDF and x3p surface data files
+Comment=View ISO 25178 SDF and x3p files
 Exec=sdflens %f
 Icon=sdflens
 Terminal=false

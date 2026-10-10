@@ -9,7 +9,7 @@ build-backend = "hatchling.build"
 [project]
 name = "sdflens"
 dynamic = ["version"]
-description = "3D and 2D viewer for ISO 25178-71 SDF and ISO 25178-72 x3p surface data files"
+description = "3D and 2D viewer for ISO 25178-71 SDF and ISO 25178-72 x3p files"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "GPL-3.0-or-later"
