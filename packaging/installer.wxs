@@ -48,12 +48,16 @@ SPDX-License-Identifier: GPL-3.0-or-later
       <RegistryValue Root="HKLM" Key="Software\Classes\sdflens.sdf" Type="string" Value="Surface data file" />
       <RegistryValue Root="HKLM" Key="Software\Classes\sdflens.sdf\DefaultIcon" Type="string" Value="[INSTALLFOLDER]sdflens.exe,0" />
       <RegistryValue Root="HKLM" Key="Software\Classes\sdflens.sdf\shell\open\command" Type="string" Value="&quot;[INSTALLFOLDER]sdflens.exe&quot; &quot;%1&quot;" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\.x3p\OpenWithProgids" Name="sdflens.x3p" Type="string" Value="" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\sdflens.x3p" Type="string" Value="x3p file" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\sdflens.x3p\DefaultIcon" Type="string" Value="[INSTALLFOLDER]sdflens.exe,0" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\sdflens.x3p\shell\open\command" Type="string" Value="&quot;[INSTALLFOLDER]sdflens.exe&quot; &quot;%1&quot;" />
     </Component>
 
     <Feature Id="Main" Title="sdflens" Level="1" ConfigurableDirectory="INSTALLFOLDER">
       <ComponentGroupRef Id="AppFiles" />
       <ComponentRef Id="StartMenuShortcut" />
-      <Feature Id="Association" Title="Open .sdf files with sdflens" Level="1">
+      <Feature Id="Association" Title="Open .sdf and .x3p files with sdflens" Level="1">
         <ComponentRef Id="FileAssociation" />
       </Feature>
       <Feature Id="DesktopShortcut" Title="Desktop shortcut" Level="2">
