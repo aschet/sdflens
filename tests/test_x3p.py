@@ -86,16 +86,81 @@ def test_point_cloud_model_drops_points_that_are_not_measured() -> None:
     assert PointCloudModel.from_points(points).num_points == 198
 
 
-def test_matrix_with_absolute_axes_is_a_point_cloud_model() -> None:
-    rows, columns = make_ramp().shape
+def _irregular(data: np.ndarray | None = None) -> x3pio.Surface:
+    """Return a surface of the heights of the ramp whose rows lean, so that it is not on a grid."""
+    heights = make_ramp() if data is None else data
+    rows, columns = heights.shape
     x, y = np.meshgrid(np.arange(columns) * 1e-6, np.arange(rows) * 2e-6)
-    model = build_model(x3pio.Surface.from_points(np.stack([x, y, make_ramp()], axis=-1)))
+    x = x + 0.3e-6 * np.arange(rows)[:, np.newaxis]
+    return x3pio.Surface.from_points(np.stack([x, y, heights], axis=-1))
+
+
+def test_surface_with_absolute_axes_is_a_model_that_keeps_its_matrix() -> None:
+    model = build_model(_irregular())
 
     assert isinstance(model, PointCloudModel)
     assert model.num_points == make_ramp().size - 1
+    assert model.invalid_count == 1  # the point that is not measured
+    assert model.grid is not None
+    assert model.grid.shape == (*make_ramp().shape, 3)
+    assert np.isnan(model.grid[0, -1]).any()
 
+
+def test_a_point_cloud_and_an_irregular_profile_keep_no_matrix() -> None:
+    cloud = build_model(x3pio.PointCloud.from_points(make_cloud()))
+    path = x3pio.Profile.from_points(make_cloud())
+    assert isinstance(cloud, PointCloudModel)
+    assert cloud.grid is None
+    assert cloud.invalid_count == 0
+    model = build_model(path)
     assert isinstance(model, PointCloudModel)
-    assert model.num_points == make_ramp().size - 1
+    assert model.grid is None
+
+
+def test_irregular_surface_mesh_joins_neighbouring_points() -> None:
+    model = build_model(_irregular())
+    assert isinstance(model, PointCloudModel)
+    mesh = build_mesh(model)
+
+    assert not mesh.is_cloud
+    rows, columns = make_ramp().shape
+    assert mesh.vertices.shape == (rows * columns, 3)
+    assert mesh.valid.shape == (rows, columns)
+    assert not mesh.valid[0, -1]
+    # Two triangles for each of the (rows - 1) * (columns - 1) cells with four measured corners:
+    # the point that is not measured takes one cell away.
+    assert len(mesh.triangles) == 2 * 3 * ((rows - 1) * (columns - 1) - 1)
+    assert len(mesh.lines) > 0
+    assert mesh.vertices.max() <= 1.0
+    assert mesh.vertices.min() >= -1.0
+    for mode in RenderMode:
+        _, indices = _primitives(mesh, mode)
+        assert len(indices) > 0
+
+
+def test_irregular_surface_mesh_places_vertices_at_the_stored_positions() -> None:
+    model = build_model(_irregular())
+    assert isinstance(model, PointCloudModel)
+    mesh = build_mesh(model)
+    x = mesh.vertices[:, 0].reshape(make_ramp().shape)
+
+    # The rows lean to the right by 0.3 µm per row; x grows with the column in every row
+    assert (np.diff(x[0, :-1]) > 0).all()
+    assert x[1, 0] > x[0, 0]
+    assert x[2, 0] > x[1, 0]
+
+
+def test_irregular_layers_are_chosen_one_by_one() -> None:
+    first = make_ramp()
+    layers = [_irregular(first), _irregular(10.0 * first)]
+    points = np.stack([layer.layer.points() for layer in layers])
+    x3p = x3pio.Surface.from_points(points)
+
+    assert layer_count(x3p) == 2
+    low, high = build_model(x3p), build_model(x3p, 1)
+    assert isinstance(low, PointCloudModel)
+    assert isinstance(high, PointCloudModel)
+    assert high.value_range.hi == pytest.approx(10.0 * low.value_range.hi)
 
 
 def test_file_without_measured_points_is_rejected() -> None:

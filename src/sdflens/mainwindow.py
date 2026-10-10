@@ -468,8 +468,14 @@ class MainWindow(QMainWindow):
 
     @property
     def _is_cloud(self) -> bool:
-        """Whether a point cloud is shown, which has no 2D or profile view."""
-        return isinstance(self._model, PointCloudModel)
+        """Whether points are shown that are drawn as points only, not as a surface."""
+        model = self._model
+        return isinstance(model, PointCloudModel) and model.grid is None
+
+    @property
+    def _has_grid_views(self) -> bool:
+        """Whether the 2D and the profile view apply: to a regular grid, not to points."""
+        return self._model is None or isinstance(self._model, SurfaceModel)
 
     def _choose_view(self, mode: str) -> None:
         """Show the view the user chose and prefer it for the next file."""
@@ -530,7 +536,7 @@ class MainWindow(QMainWindow):
         self._export_action.setEnabled(loaded)
         self._copy_metadata_action.setEnabled(loaded)
         for action in (self._view_2d_action, self._view_profile_action):
-            action.setEnabled(not self._is_cloud)
+            action.setEnabled(self._has_grid_views)
 
     def _update_title(self, path: str | None = None) -> None:
         # Qt appends the application display name to every window title.
@@ -538,7 +544,7 @@ class MainWindow(QMainWindow):
 
     def _summary(self, model: Model3D, mesh: SurfaceMesh) -> str:
         (x, y), unit = format_values([model.size_x, model.size_y])
-        if isinstance(model, PointCloudModel):
+        if isinstance(model, PointCloudModel) and model.grid is None:
             return self.tr("size = {x} \u00d7 {y} {unit}, {count} points").format(
                 x=x, y=y, unit=unit, count=model.num_points
             )

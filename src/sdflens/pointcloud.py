@@ -2,11 +2,11 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Point cloud model: the measured points of an x3p file without a grid."""
+"""Point cloud model: the measured points of an x3p file that are not on a regular grid."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 from numpy.typing import NDArray
@@ -31,6 +31,10 @@ class PointCloudModel:
     Only points with three finite coordinates are kept. The lateral extent is the bounding
     box of the points, so a cloud that is no wider than a point is shown at a size of one
     nanometer.
+
+    The points of an irregular surface, whose x and y are stored for every point, also keep
+    their matrix as :attr:`grid`: the neighbours of a point in its rows and columns are its
+    neighbours in space, so the points can be connected into a surface. A point cloud has none.
     """
 
     points: NDArray[np.float64]
@@ -42,6 +46,18 @@ class PointCloudModel:
     center_y: float
     extent_x: float
     extent_y: float
+    grid: NDArray[np.float64] | None = None
+
+    @classmethod
+    def from_grid(cls, grid: NDArray[np.float64]) -> PointCloudModel:
+        """Build the model from a ``(rows, columns, 3)`` array of ``x``, ``y``, ``z`` in meters.
+
+        The matrix is kept, with ``NaN`` for the coordinates of a point that is not measured.
+
+        :raises NoMeasuredPointsError: If no point has three finite coordinates.
+        """
+        grid = np.asarray(grid, dtype=np.float64)
+        return replace(cls.from_points(grid.reshape(-1, 3)), grid=grid)
 
     @classmethod
     def from_points(cls, points: NDArray[np.float64]) -> PointCloudModel:
@@ -76,8 +92,8 @@ class PointCloudModel:
 
     @property
     def invalid_count(self) -> int:
-        """Always zero: a point cloud keeps no non-measured points."""
-        return 0
+        """Number of non-measured points: none for a point cloud, which keeps no such points."""
+        return 0 if self.grid is None else self.grid.shape[0] * self.grid.shape[1] - self.num_points
 
     @property
     def size_x(self) -> float:

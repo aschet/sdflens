@@ -29,7 +29,8 @@ class SurfaceMesh:
     lateral extent in meters), keeping float32 well conditioned for micrometer-sized data.
     Non-measured points keep a placeholder vertex that no primitive references. Grids larger
     than :data:`MAX_MESH_POINTS` are thinned out by ``step`` along both axes; ``valid`` matches
-    the thinned grid. A point cloud has no triangles or lines and is always drawn as points.
+    the thinned grid. A point cloud has no triangles or lines and is always drawn as points. An
+    irregular surface is a grid like any other, with the positions of its points.
     """
 
     vertices: NDArray[np.float32]
@@ -71,7 +72,9 @@ class SurfaceMesh:
 
     @classmethod
     def from_point_cloud(cls, model: PointCloudModel) -> SurfaceMesh:
-        """Build the mesh of the points of ``model``, which are all drawn."""
+        """Build the mesh of ``model``: its points, or for an irregular surface its grid."""
+        if model.grid is not None:
+            return cls._from_point_grid(model, model.grid)
         points = model.points
         vertices = np.stack(
             [
@@ -89,6 +92,32 @@ class SurfaceMesh:
             valid=np.ones(len(points), dtype=np.bool_),
             step=1,
             is_cloud=True,
+        )
+
+    @classmethod
+    def _from_point_grid(cls, model: PointCloudModel, grid: NDArray[np.float64]) -> SurfaceMesh:
+        """Build the mesh of an irregular surface: vertices at the points, joined as a grid."""
+        step = _step(grid.shape[0], grid.shape[1])
+        if step > 1:
+            rows = _sample_indices(grid.shape[0], step)
+            cols = _sample_indices(grid.shape[1], step)
+            grid = grid[np.ix_(rows, cols)]
+        valid = np.isfinite(grid).all(axis=-1)
+        vertices = np.stack(
+            [
+                (grid[..., 0] - model.center_x) / model.scale,
+                (grid[..., 1] - model.center_y) / model.scale,
+                (grid[..., 2] - model.z_center) / model.scale,
+            ],
+            axis=-1,
+        )
+        vertices = np.where(valid[..., np.newaxis], vertices, 0.0).reshape(-1, 3)
+        return cls(
+            vertices=vertices.astype(np.float32),
+            triangles=_triangle_indices(valid),
+            lines=_line_indices(valid),
+            valid=valid,
+            step=step,
         )
 
 

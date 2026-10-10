@@ -1185,6 +1185,34 @@ def test_save_as_reports_a_point_cloud_that_cannot_be_an_sdf_file(
     window.close()
 
 
+def test_an_irregular_surface_is_drawn_as_a_surface_in_3d_only(tmp_path: Path) -> None:
+    rows, columns = make_ramp().shape
+    x, y = np.meshgrid(np.arange(columns) * 1e-6, np.arange(rows) * 2e-6)
+    x = x + 0.3e-6 * np.arange(rows)[:, np.newaxis]
+    path = tmp_path / "irregular.x3p"
+    x3pio.Surface.from_points(np.stack([x, y, make_ramp()], axis=-1)).save(path)
+    window = MainWindow()
+    _load(window, path)
+
+    assert window._surface_view._mesh is not None
+    assert not window._surface_view._mesh.is_cloud
+    assert window._render_menu.isEnabled()  # surface, wireframe and points
+    assert not window._view_2d_action.isEnabled()
+    assert not window._view_profile_action.isEnabled()
+    assert "points" not in window._stats_label.text()
+    assert window._stats_label.text().startswith("size = ")
+
+    cloud_path = tmp_path / "cloud.x3p"
+    x3pio.write_points(cloud_path, make_cloud())
+    _load(window, cloud_path)
+
+    assert window._surface_view._mesh is not None
+    assert window._surface_view._mesh.is_cloud
+    assert not window._render_menu.isEnabled()
+    assert window._stats_label.text().endswith("200 points")
+    window.close()
+
+
 def _layered_path(tmp_path: Path, *layers: np.ndarray) -> Path:
     path = tmp_path / "layers.x3p"
     x3pio.Surface.from_array(np.stack(layers), x_scale=1e-6, y_scale=2e-6).save(path)
