@@ -31,7 +31,7 @@ classifiers = [
 dependencies = [
     "numpy>=1.24",
     "PySide6>=6.10",
-    "sdfio>=1.3.0",
+    "sdfio>=1.4.0",
     "x3pio>=1.0.0",
 ]
 
