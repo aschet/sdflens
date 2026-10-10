@@ -22,13 +22,9 @@ function ConvertTo-Rtf([string]$Text) {
 
 # Installs exactly the versions of pylock.build.toml, which uv generates for all platforms:
 #   uv pip compile pyproject.toml --group packaging --universal --python-version 3.14 `
-#       --generate-hashes --no-emit-package x3pio -o pylock.build.toml
+#       --generate-hashes -o pylock.build.toml
 python -m pip install -r pylock.build.toml
 if ($LASTEXITCODE -ne 0) { throw "Installing the locked packages failed" }
-# Temporary: x3pio is a git dependency, which pip cannot install together with hashes. Remove
-# this step and --no-emit-package above when x3pio is released on PyPI.
-python -m pip install --no-deps "x3pio @ git+https://github.com/aschet/x3pio.git@79e9e8678e21b020b3b1e13997ee300252f09a0c"
-if ($LASTEXITCODE -ne 0) { throw "Installing x3pio failed" }
 python -m pip install --no-deps --no-build-isolation -e .
 if ($LASTEXITCODE -ne 0) { throw "Installing sdflens failed" }
 python packaging\make_icon.py build\sdflens.ico

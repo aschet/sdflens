@@ -59,9 +59,6 @@ jobs:
       - name: Install the locked packages and the app
         run: |
           python -m pip install -r pylock.build.toml
-          # Temporary: x3pio is a git dependency, which pip cannot install together with hashes.
-          # Remove this step and --no-emit-package in pylock.build.toml when x3pio is on PyPI.
-          python -m pip install --no-deps "x3pio @ git+https://github.com/aschet/x3pio.git@79e9e8678e21b020b3b1e13997ee300252f09a0c"
           python -m pip install --no-deps --no-build-isolation -e .
       - name: Download appimagetool
         run: |

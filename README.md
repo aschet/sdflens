@@ -41,9 +41,6 @@ sdflens
 
 `python -m sdflens` starts the viewer as well.
 
-Until x3pio is released on PyPI, it is installed from its git repository, so
-[git](https://git-scm.com/) has to be installed.
-
 ## Windows Installer
 
 With the virtual environment activated and the [.NET SDK](https://dotnet.microsoft.com/download)
@@ -56,9 +53,6 @@ runtime dependencies, `build\installer\sdflens-<version>.cdx.json`:
 ```
 
 The build installs exactly the package versions listed in `pylock.build.toml`. The uv command that updates them is at the top of `packaging\build_windows.ps1`.
-
-Until x3pio is released on PyPI, the script installs it separately from its git repository, at a
-commit that it names, because pip cannot install a git dependency together with hashes.
 
 ## Linux AppImage
 
