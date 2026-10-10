@@ -101,9 +101,6 @@ class SaveOptionsDialog(QDialog):
         self._single_layer = QCheckBox(self.tr("Save only the current layer"), self)
         self._single_layer.setVisible(is_x3p and layers > 1)
         self._z_offset = QCheckBox(self.tr("Add the z offset to the heights"), self)
-        self._z_offset.setToolTip(
-            self.tr("SDF has no coordinate system, so the z offset of the placement is lost.")
-        )
         self._z_offset.setVisible(offset != 0.0)
 
         self._note = QLabel(self)
@@ -221,27 +218,18 @@ class SaveOptionsDialog(QDialog):
         """Return what saving in the chosen version loses or changes, or an empty string."""
         file, dialect = self._file, self.dialect
         if isinstance(file, SdfFile):
-            return "" if not self._is_x3p else self.tr("The trailer is saved as the comment.")
+            return ""
         if not self._is_x3p:
-            note = self.tr(
-                "The metadata is saved in the trailer. Offsets, the rotation and the vendor "
-                "extensions are not kept."
-            )
-            if self.apply_z_offset:
-                note = self.tr(
-                    "The metadata is saved in the trailer. The z offset is added to the "
-                    "heights. The x and y offsets, the rotation and the vendor extensions are "
-                    "not kept."
-                )
+            lines = [self.tr("Metadata, offsets, rotation and vendor extensions are omitted.")]
             if len(file.layers) > 1:
-                note += " " + self.tr("Only the current layer is saved.")
-            return note
+                lines.append(self.tr("Only the current layer is saved."))
+            return "\n".join(lines)
         if (
             isinstance(dialect, x3pio.Revision)
             and file.extensions
             and not extensions_fit(file, dialect)
         ):
-            return self.tr("The vendor extensions cannot be kept in this version.")
+            return self.tr("The vendor extensions cannot be saved in this version.")
         return ""
 
     def _update(self) -> None:

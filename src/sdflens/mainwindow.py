@@ -632,9 +632,7 @@ class MainWindow(QMainWindow):
         name = Path(path).name
         if checksum_failed:
             self.statusBar().showMessage(
-                self.tr("Loaded {name}, but its checksum does not match its content").format(
-                    name=name
-                ),
+                self.tr("Loaded {name}: checksum mismatch").format(name=name),
                 10000,
             )
         else:

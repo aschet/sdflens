@@ -956,7 +956,7 @@ def test_options_dialog_for_x3p_offers_its_versions_encodings_and_data_types(
     assert dialog.dialect is x3pio.Revision.ISO25178_72_2017_DAM1  # the newest
     assert dialog.file_format is x3pio.DataStorage.BINARY
     assert dialog.data_type is x3pio.DataType.FLOAT64
-    assert "comment" in dialog._note.text()  # what the conversion does to the trailer
+    assert not dialog._note.text()
 
 
 def test_options_dialog_of_an_x3p_file_starts_with_its_own_options() -> None:
@@ -1260,10 +1260,8 @@ def test_the_save_dialog_offers_the_z_offset_only_for_an_sdf_file_of_a_placed_x3
     assert dialog._z_offset.isVisibleTo(dialog)
     assert dialog._z_offset.text() == "Add the z offset to the heights"
     assert not dialog.apply_z_offset  # the heights are saved as they are unless it is asked for
-    assert "z offset is added" not in dialog._note.text()
     dialog._z_offset.setChecked(True)
     assert dialog.apply_z_offset
-    assert "z offset is added" in dialog._note.text()
 
     assert not SaveOptionsDialog(placed, is_x3p=True)._z_offset.isVisibleTo(dialog)  # x3p
     assert not SaveOptionsDialog(make_x3p(), is_x3p=False)._z_offset.isVisibleTo(

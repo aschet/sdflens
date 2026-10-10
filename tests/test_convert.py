@@ -23,7 +23,6 @@ from sdflens.convert import (
     sdf_to_x3p,
     x3p_to_sdf,
 )
-from sdflens.infopanel import trailer_text
 
 
 def test_allowed_data_types_follow_the_standard() -> None:
@@ -131,7 +130,7 @@ def test_unsigned_bcr_files_round_trip(data_type: DataType, binary: bool, tmp_pa
     np.testing.assert_allclose(loaded.data, make_ramp(), atol=1e-9, equal_nan=True)
 
 
-def test_sdf_converts_to_x3p_with_its_scales_and_metadata() -> None:
+def test_sdf_converts_to_x3p_with_its_scales_and_metadata_but_not_its_trailer() -> None:
     sdf = make_sdf(make_ramp())
     sdf.trailer = "a note"
     x3p = sdf_to_x3p(sdf)
@@ -141,7 +140,7 @@ def test_sdf_converts_to_x3p_with_its_scales_and_metadata() -> None:
     np.testing.assert_allclose(x3p.layers[0].z, make_ramp(), equal_nan=True)
     assert x3p.metadata is not None
     assert x3p.metadata.instrument.manufacturer == sdf.header.manufacturer_id
-    assert x3p.metadata.comment == "a note"
+    assert x3p.metadata.comment is None  # the trailer is not saved
 
 
 def test_sdf_profile_converts_to_an_x3p_profile() -> None:
@@ -150,7 +149,7 @@ def test_sdf_profile_converts_to_an_x3p_profile() -> None:
     assert isinstance(x3p, x3pio.Profile)
 
 
-def test_x3p_converts_to_sdf_with_its_metadata_in_the_trailer() -> None:
+def test_x3p_converts_to_sdf_without_its_metadata_in_the_trailer() -> None:
     x3p = make_x3p()
     x3p = x3p.with_metadata(manufacturer="Ünïcode manufacturer name")
     sdf = x3p_to_sdf(x3p)
@@ -158,9 +157,8 @@ def test_x3p_converts_to_sdf_with_its_metadata_in_the_trailer() -> None:
     assert (sdf.header.x_scale, sdf.header.y_scale) == (1e-6, 2e-6)
     assert sdf.header.manufacturer_id.isascii()
     assert len(sdf.header.manufacturer_id) <= 10
-    fields = sdfio.parse_tagged_fields(trailer_text(sdf))
-    assert fields["Creator"] == "Jane Doe"
-    assert fields["Comment"] == "Test surface"
+    assert sdf.trailer == ""  # the metadata is not written into the trailer
+    assert sdf.header.create_date is not None  # the date is a field of the header
     np.testing.assert_allclose(sdf.data, make_ramp(), equal_nan=True)
 
 

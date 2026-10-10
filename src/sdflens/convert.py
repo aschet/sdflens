@@ -19,7 +19,6 @@ from sdfio import (
     SdfFile,
     SdfFormatError,
     SdfHeader,
-    format_tagged_fields,
     get_data_type,
     suggest_z_scale,
     validate_trailer_tagged,
@@ -132,16 +131,13 @@ def _ascii(text: str, limit: int | None = None) -> str:
 def sdf_to_x3p(sdf: SdfFile) -> x3pio.X3pFile:
     """Return the x3p file that holds the surface of ``sdf``, as float64 in the newest dialect.
 
-    The trailer becomes the comment, the manufacturer ID the manufacturer of the instrument and
-    the creation date the date.
+    The manufacturer ID becomes the manufacturer of the instrument and the creation date the date.
+    The trailer is not saved.
     """
     header = sdf.header
-    trailer = sdf.trailer
-    comment = trailer if isinstance(trailer, str) else trailer.decode("ascii", errors="replace")
     metadata = x3pio.Metadata(
         date=header.create_date or datetime.now(UTC),
         instrument=x3pio.Instrument(manufacturer=header.manufacturer_id),
-        comment=comment.strip() or None,
     )
     data = np.asarray(sdf.data, dtype=np.float64)
     if header.num_profiles == 1:
@@ -167,10 +163,10 @@ def x3p_to_sdf(x3p: x3pio.X3pFile, layer: int = 0, apply_z_offset: bool = False)
     """Return the SDF file that holds the surface of ``layer`` of ``x3p``, as binary64 in ISO-2.0.
 
     Only a grid of heights can be saved, and an SDF file holds one: of several layers the one
-    asked for, counted from 0. The metadata becomes the
-    tagged trailer, the manufacturer of the instrument the manufacturer ID and the date the
-    creation date. Offsets, the rotation and vendor extensions are lost, except that
-    ``apply_z_offset`` adds the z offset of the placement to the heights.
+    asked for, counted from 0. The manufacturer of the instrument becomes the manufacturer ID and
+    the date the creation date. The trailer is empty: the other metadata, the offsets, the
+    rotation and vendor extensions are lost, except that ``apply_z_offset`` adds the z offset of
+    the placement to the heights.
 
     :raises SdfFormatError: If ``x3p`` is a point cloud or has x or y coordinates for each point,
         or if ``apply_z_offset`` is given for a placement with a rotation.
@@ -184,27 +180,12 @@ def x3p_to_sdf(x3p: x3pio.X3pFile, layer: int = 0, apply_z_offset: bool = False)
             raise SdfFormatError("The z offset cannot be added to the heights of a rotated surface")
         data += float(chosen.placement.offset[2])
     metadata = x3p.metadata
-    fields: dict[str, str] = {}
     create_date = None
     manufacturer = ""
     if metadata is not None:
-        instrument = metadata.instrument
-        manufacturer = instrument.manufacturer
-        probing = metadata.probing_system
+        manufacturer = metadata.instrument.manufacturer
         if metadata.date is not None:
             create_date = metadata.date.astimezone(UTC)
-        calibration = metadata.calibration_date
-        fields = {
-            "Creator": metadata.creator or "",
-            "Manufacturer": instrument.manufacturer,
-            "Model": instrument.model,
-            "Serial": instrument.serial,
-            "Version": instrument.version,
-            "CalibrationDate": calibration.isoformat() if calibration else "",
-            "ProbingType": probing.type.value if probing.type else "",
-            "ProbingIdentification": probing.identification,
-            "Comment": metadata.comment or "",
-        }
     header = SdfHeader(
         manufacturer_id=_ascii(manufacturer, _MANUFACTURER_ID_LENGTH) or "sdflens",
         create_date=create_date,
@@ -214,8 +195,7 @@ def x3p_to_sdf(x3p: x3pio.X3pFile, layer: int = 0, apply_z_offset: bool = False)
         x_scale=abs(float(chosen.header.x.increment)),
         y_scale=abs(float(chosen.header.y.increment)),
     )
-    trailer = format_tagged_fields({name: _ascii(value) for name, value in fields.items() if value})
-    return SdfFile(header=header, data=data, trailer=trailer)
+    return SdfFile(header=header, data=data)
 
 
 def extensions_fit(x3p: x3pio.X3pFile, revision: x3pio.Revision) -> bool:

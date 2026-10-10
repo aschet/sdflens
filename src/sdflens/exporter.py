@@ -144,29 +144,18 @@ class Exporter(QObject):
         """
         QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
         error: Exception | None = None
-        dropped = False
         try:
             converted = convert_file(file, dialect, data_type, layer, single_layer, apply_z_offset)
             if isinstance(converted, sdfio.SdfFile):
                 converted.save(path, format=cast(sdfio.FileFormat, file_format))
             else:
                 converted.save(path, storage=cast(x3pio.DataStorage, file_format))
-                dropped = (
-                    isinstance(file, x3pio.X3pFile)
-                    and bool(file.extensions)
-                    and not converted.extensions
-                )
         except FILE_ERRORS as exc:
             error = exc
         finally:
             QApplication.restoreOverrideCursor()
         if error is not None:
             QMessageBox.critical(self._window, self.tr("Cannot save file"), f"{path}\n\n{error}")
-        elif dropped:
-            self.message.emit(
-                self.tr("Saved {path}; the vendor extensions could not be kept").format(path=path),
-                8000,
-            )
         else:
             self.message.emit(self.tr("Saved {path}").format(path=path), 5000)
 
