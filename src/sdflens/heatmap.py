@@ -301,7 +301,7 @@ class HeatmapView(QWidget):
         y_min = 0.0
         y_max = (model.num_profiles - 1) * model.pixel_size_y if model else 0.0
 
-        for tick in nice_ticks(max(x_lo, x_min), min(x_hi, x_max), max(2, plot.width() // 90)):
+        for tick in nice_ticks(max(x_lo, x_min), min(x_hi, x_max), max(2, plot.width() // 90 + 1)):
             sx, _ = transform.world_to_screen(tick, 0.0)
             px = plot.left() + int(sx)
             painter.drawLine(px, plot.bottom(), px, plot.bottom() + _TICK_LENGTH)
@@ -311,7 +311,7 @@ class HeatmapView(QWidget):
                 plot.bottom() + _TICK_LENGTH + metrics.ascent() + 1,
                 label,
             )
-        for tick in nice_ticks(max(y_lo, y_min), min(y_hi, y_max), max(2, plot.height() // 50)):
+        for tick in nice_ticks(max(y_lo, y_min), min(y_hi, y_max), max(2, plot.height() // 50 + 1)):
             _, sy = transform.world_to_screen(0.0, tick)
             py = plot.top() + int(sy)
             painter.drawLine(plot.left() - _TICK_LENGTH, py, plot.left(), py)

@@ -265,7 +265,7 @@ class _Plot(QWidget):
         x_max = (len(self._values) - 1) * self._step
         bottom = plot.top() + plot.height()
 
-        for tick in nice_ticks(max(x_lo, 0.0), min(x_hi, x_max), max(2, plot.width() // 90)):
+        for tick in nice_ticks(max(x_lo, 0.0), min(x_hi, x_max), max(2, plot.width() // 90 + 1)):
             px = plot.left() + int((tick - x_lo) / (x_hi - x_lo) * plot.width())
             painter.drawLine(px, bottom, px, bottom + _TICK_LENGTH)
             label = format_tick(tick, x_factor)
@@ -274,7 +274,7 @@ class _Plot(QWidget):
                 bottom + _TICK_LENGTH + metrics.ascent() + 1,
                 label,
             )
-        for tick in nice_ticks(z_lo, z_hi, max(2, plot.height() // 50)):
+        for tick in nice_ticks(z_lo, z_hi, max(2, plot.height() // 50 + 1)):
             py = bottom - int((tick - z_lo) / (z_hi - z_lo) * plot.height())
             painter.drawLine(plot.left() - _TICK_LENGTH, py, plot.left(), py)
             label = format_tick(tick, z_factor)

@@ -77,7 +77,7 @@ class ColorBar(QWidget):
         lo, hi = self._range.lo, self._range.hi
         factor, symbol = unit_for(hi - lo)
         painter.drawText(QRectF(0, 4, self.width(), 18), Qt.AlignmentFlag.AlignCenter, symbol)
-        target = max(2, int(bar_height // 40))
+        target = max(2, int(bar_height // 30) + 1)
         metrics = painter.fontMetrics()
         for tick in nice_ticks(lo, hi, target):
             y = bar_top + (hi - tick) / (hi - lo) * bar_height

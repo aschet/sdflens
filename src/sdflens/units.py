@@ -97,6 +97,27 @@ def nice_ticks(lo: float, hi: float, target: int = 6) -> list[float]:
         if raw <= multiple * magnitude:
             step = multiple * magnitude
             break
+    ticks = _ticks_at(lo, hi, step)
+    # An axis with a single tick says little: take finer steps until there are three.
+    for _ in range(4):
+        if len(ticks) >= 3:
+            break
+        step = _finer(step)
+        ticks = _ticks_at(lo, hi, step)
+    return ticks
+
+
+def _ticks_at(lo: float, hi: float, step: float) -> list[float]:
+    """Return the multiples of ``step`` within ``[lo, hi]``."""
     first = math.ceil(lo / step - 1e-9)
     last = math.floor(hi / step + 1e-9)
     return [k * step for k in range(first, last + 1)]
+
+
+def _finer(step: float) -> float:
+    """Return the next smaller of the steps 1, 2 and 5 times a power of ten."""
+    magnitude = 10.0 ** math.floor(math.log10(step) + 1e-9)
+    mantissa = round(step / magnitude)
+    if mantissa >= 5:
+        return 2.0 * magnitude
+    return magnitude if mantissa >= 2 else 5.0 * magnitude / 10.0

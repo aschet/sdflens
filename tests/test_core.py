@@ -73,6 +73,8 @@ def test_units_and_ticks() -> None:
     assert ticks[0] >= -1.3
     assert ticks[-1] <= 5.6
     assert 3 <= len(ticks) <= 12
+    # Not a single tick: a step of 100 would be too coarse for this interval
+    assert nice_ticks(-0.4, 82.0, 2) == [0.0, 20.0, 40.0, 60.0, 80.0]
 
 
 def test_camera_home_shows_x_to_the_right_with_z_up() -> None:
