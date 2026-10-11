@@ -1733,3 +1733,30 @@ def test_an_irregular_profile_is_shown_in_the_profile_view_at_its_positions(
     plot._set_hover(4)
     assert texts[-1] == "x = 8 µm, z = 800 nm"
     window.close()
+
+
+def test_the_profile_overview_shows_where_the_profile_lies_while_the_slider_is_used(
+    ramp_path: Path,
+) -> None:
+    window = MainWindow()
+    _load(window, ramp_path)
+    window._view_profile_action.trigger()
+    view = window._profile_view
+    overview = view._overview
+    assert overview.isHidden()
+
+    view._spin.setValue(3)  # the third row of the ramp, at 4 µm along y
+    assert not overview.isHidden()
+    assert overview._caption == "y = 4 µm"
+    width = overview.width()
+    view._direction.setCurrentIndex(1)  # the first column, at 0 along x
+    assert overview._caption == "x = 0 m"
+    assert overview.width() == width  # the width does not follow the caption
+
+    view._slider.sliderPressed.emit()
+    assert not overview._timer.isActive()  # held, so the delay does not run
+    view._slider.sliderReleased.emit()
+    assert overview._timer.isActive()
+    overview._timer.timeout.emit()
+    assert overview.isHidden()
+    window.close()

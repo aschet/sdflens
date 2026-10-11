@@ -20,6 +20,7 @@ from PySide6.QtGui import (
     QPaintEvent,
     QPen,
     QPolygonF,
+    QResizeEvent,
     QStandardItemModel,
     QWheelEvent,
 )
@@ -36,6 +37,7 @@ from PySide6.QtWidgets import (
 
 from .camera import Tool
 from .icons import load_icon
+from .overview import ProfileOverview
 from .pointcloud import PointCloudModel
 from .surface import SurfaceModel
 from .units import format_length, format_tick, nice_ticks, unit_for
@@ -132,6 +134,8 @@ class _Plot(QWidget):
 
     #: Index of the point under the cursor, ``-1`` when there is none.
     point_hovered = Signal(int)
+    #: The plot has a new size.
+    resized = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -370,6 +374,11 @@ class _Plot(QWidget):
         )
         painter.drawText(4, plot.top() + metrics.ascent(), f"z [{z_symbol}]")
 
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """Tell that the size changed."""
+        super().resizeEvent(event)
+        self.resized.emit()
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """Start a pan or zoom drag."""
         button = event.button()
@@ -446,6 +455,7 @@ class ProfileView(QWidget):
         self._save = QPushButton(load_icon("save-as"), "", self)
         self._save.setToolTip(self.tr("Save profile as..."))
         self._plot = _Plot(self)
+        self._overview = ProfileOverview(self._plot)
 
         controls = QHBoxLayout()
         controls.setContentsMargins(6, 4, 6, 0)
@@ -464,6 +474,11 @@ class ProfileView(QWidget):
         self._spin.valueChanged.connect(self._slider.setValue)
         self._spin.valueChanged.connect(lambda _value: self._show())
         self._plot.point_hovered.connect(self._on_point_hovered)
+        self._plot.resized.connect(self._overview.reposition)
+        self._spin.valueChanged.connect(lambda _value: self._show_overview())
+        self._direction.currentIndexChanged.connect(lambda _index: self._show_overview())
+        self._slider.sliderPressed.connect(self._hold_overview)
+        self._slider.sliderReleased.connect(self._overview.release)
         self._save.clicked.connect(self.save_requested)
         self._configure(1)
 
@@ -488,6 +503,7 @@ class ProfileView(QWidget):
                 )
             model = None
         self._model = model
+        self._overview.set_model(model)
         if keep_selection:
             self._show()
             return
@@ -503,7 +519,8 @@ class ProfileView(QWidget):
         self._configure(1)
 
     def set_lut(self, lut: NDArray[np.uint8]) -> None:
-        """Accept a color table; the profile is drawn in one color."""
+        """Set the color table of the overview map; the profile is drawn in one color."""
+        self._overview.set_lut(lut)
 
     def set_tool(self, tool: Tool) -> None:
         """Set the action of the left mouse button; rotating pans."""
@@ -553,6 +570,14 @@ class ProfileView(QWidget):
         self._spin.setEnabled(count > 1)
         self._slider.setEnabled(count > 1)
         self._show()
+
+    def _hold_overview(self) -> None:
+        self._overview.hold()
+        self._show_overview()
+
+    def _show_overview(self) -> None:
+        """Show where the profile lies on the surface."""
+        self._overview.show_profile(self._spin.value() - 1, along_x=self._along_x)
 
     def _show(self) -> None:
         model = self._model
