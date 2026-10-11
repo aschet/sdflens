@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 import numpy as np
 import sdfio
 import x3pio
@@ -62,6 +64,64 @@ def layer_count(file: SurfaceFile) -> int:
     return 1 if isinstance(file, sdfio.SdfFile) else len(file.layers)
 
 
+class _Spacing(NamedTuple):
+    """The point spacing of a profile, and whether it was assumed."""
+
+    step: float
+    assumed: bool
+
+
+#: How far the gaps between evenly spaced positions may differ from their mean, as a fraction.
+_EVEN = 0.02
+
+#: The largest position in meters that can be a position: a damaged file may hold any number.
+_PLAUSIBLE = 1e3
+
+
+def _usable(values: np.ndarray) -> bool:
+    """Whether ``values`` can be positions: finite and not absurdly large."""
+    return bool(np.all(np.isfinite(values)) and np.max(np.abs(values)) < _PLAUSIBLE)
+
+
+def _profile_spacing(layer: x3pio.Layer) -> _Spacing | None:
+    """Return the spacing of a profile that has regular points although an axis is absolute.
+
+    The axis along the profile decides. If it is incremental, its increment is the spacing and the
+    other lateral axis, which a profile does not use, is ignored. Positions along an absolute
+    axis that are evenly spaced give their spacing. Positions that cannot be used, as they are
+    not finite or neither increasing nor decreasing, are replaced by the increment of the other
+    axis if that is incremental; the spacing is then assumed. Positions that can be used but are
+    not evenly spaced, and positions across the profile that vary, as along a diagonal, make an
+    irregular profile, for which this returns ``None``.
+    """
+    if isinstance(layer, x3pio.ProfileLayer):
+        along_x = True
+    elif isinstance(layer, x3pio.SurfaceLayer) and layer.z.size > 1 and 1 in layer.z.shape:
+        along_x = layer.z.shape[0] == 1
+    else:
+        return None
+    header = layer.header
+    axis, other = (header.x, header.y) if along_x else (header.y, header.x)
+    positions, across = (layer.x, layer.y) if along_x else (layer.y, layer.x)
+    if across is not None:
+        values = np.ravel(across)
+        if _usable(values) and np.ptp(values) > 0.0:
+            return None
+    if axis.is_incremental:
+        return _Spacing(abs(axis.increment), False)
+    if positions is not None:
+        values = np.ravel(positions)
+        mean = (values[-1] - values[0]) / (values.size - 1)
+        gaps = np.diff(values)
+        if _usable(values) and mean != 0.0 and np.all(gaps * mean > 0.0):
+            return (
+                _Spacing(abs(mean), False)
+                if np.all(np.abs(gaps - mean) <= _EVEN * abs(mean))
+                else None
+            )
+    return _Spacing(abs(other.increment), True) if other.is_incremental else None
+
+
 def build_model(file: SurfaceFile, layer: int = 0) -> SurfaceModel | PointCloudModel:
     """Return the model displaying ``layer`` of ``file``, counted from 0.
 
@@ -81,6 +141,14 @@ def build_model(file: SurfaceFile, layer: int = 0) -> SurfaceModel | PointCloudM
         header = chosen.header
         return SurfaceModel.from_grid(
             np.atleast_2d(chosen.z), abs(header.x.increment), abs(header.y.increment)
+        )
+    spacing = _profile_spacing(chosen)
+    if spacing is not None:
+        heights = np.asarray(chosen.z, dtype=np.float64)
+        along_x = heights.ndim == 1 or heights.shape[0] == 1
+        data = heights.reshape(1, -1) if along_x else heights.reshape(-1, 1)
+        return SurfaceModel.from_grid(
+            data, spacing.step, spacing.step, step_assumed=spacing.assumed
         )
     points = chosen.points(coordinate_system=x3pio.CoordinateSystem.VIEW)
     if isinstance(chosen, x3pio.SurfaceLayer):

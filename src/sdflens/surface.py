@@ -117,6 +117,9 @@ class SurfaceModel:
     z_mean: float
     scale: float
     z_center: float
+    #: Whether the point spacing of a profile was taken from its other lateral axis, because the
+    #: file stores positions along the profile that cannot be used.
+    step_assumed: bool = False
 
     @classmethod
     def from_sdf(cls, sdf: SdfFile) -> SurfaceModel:
@@ -127,7 +130,14 @@ class SurfaceModel:
         return cls.from_grid(sdf.data, float(sdf.header.x_scale), float(sdf.header.y_scale))
 
     @classmethod
-    def from_grid(cls, data: NDArray[np.float64], x_scale: float, y_scale: float) -> SurfaceModel:
+    def from_grid(
+        cls,
+        data: NDArray[np.float64],
+        x_scale: float,
+        y_scale: float,
+        *,
+        step_assumed: bool = False,
+    ) -> SurfaceModel:
         """Build the model from a ``(rows, columns)`` grid of heights and its point spacing.
 
         :raises NoMeasuredPointsError: If every point is non-measured.
@@ -150,6 +160,7 @@ class SurfaceModel:
             z_mean=float(data[valid].mean()),
             scale=scale,
             z_center=z_center,
+            step_assumed=step_assumed,
         )
 
     @property

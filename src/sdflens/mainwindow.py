@@ -659,6 +659,13 @@ class MainWindow(QMainWindow):
                 self.tr("Loaded {name}: checksum mismatch").format(name=name),
                 10000,
             )
+        elif isinstance(model, SurfaceModel) and model.step_assumed:
+            self.statusBar().showMessage(
+                self.tr("Loaded {name}: the positions are not usable, the step is assumed").format(
+                    name=name
+                ),
+                10000,
+            )
         else:
             self.statusBar().showMessage(self.tr("Loaded {name}").format(name=name), 2000)
 

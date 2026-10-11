@@ -257,3 +257,75 @@ def test_exported_information_lists_the_vendor_extensions() -> None:
         "http://www.vendor.com/image.png",
     ]
     assert "VendorExtensions" not in format_metadata(x3pio.PointCloud.from_points(make_cloud()))
+
+
+def _profile(
+    x: np.ndarray | None = None,
+    y: np.ndarray | None = None,
+    x_step: float = 1e-6,
+    y_step: float = 1e-6,
+) -> x3pio.Profile:
+    """Return a profile of eight points; an axis is absolute if its positions are given."""
+
+    def axis(positions: np.ndarray | None, step: float) -> x3pio.Axis:
+        kind = x3pio.AxisType.INCREMENTAL if positions is None else x3pio.AxisType.ABSOLUTE
+        return x3pio.Axis(kind, increment=step)
+
+    header = x3pio.Header(x=axis(x, x_step), y=axis(y, y_step))
+    z = np.linspace(0.0, 1e-7, 8)
+    return x3pio.Profile.from_layers([x3pio.ProfileLayer(z, x, y, header=header)])
+
+
+def test_profile_positions_across_a_profile_do_not_matter() -> None:
+    # As in the OpenGPS files: the y coordinates of an x profile are numbers that are no positions
+    model = build_model(
+        _profile(y=np.array([4e-4, -9e303, 8e-308, 1e300, 5e-300, 7e299, 1.0, 2.0]))
+    )
+
+    assert isinstance(model, SurfaceModel)
+    assert model.data.shape == (1, 8)
+    assert (model.x_scale, model.step_assumed) == (1e-6, False)
+
+
+def test_evenly_spaced_absolute_positions_are_a_regular_profile() -> None:
+    model = build_model(_profile(x=np.arange(8) * 2.5e-6))
+
+    assert isinstance(model, SurfaceModel)
+    assert model.x_scale == pytest.approx(2.5e-6)
+    assert not model.step_assumed
+
+
+def test_unusable_positions_along_a_profile_give_an_assumed_step() -> None:
+    model = build_model(
+        _profile(x=np.array([4e-4, -9e303, 8e-308, 1e300, 5e-300, 7e299, 1.0, 2.0]), y_step=3e-6)
+    )
+
+    assert isinstance(model, SurfaceModel)
+    assert (model.x_scale, model.step_assumed) == (3e-6, True)
+    # without another regular axis, there is nothing to take the step from
+    assert isinstance(
+        build_model(_profile(x=np.array([5.0, 1.0, 9.0, 2.0, 3.0, 8.0, 0.0, 7.0]), y=np.zeros(8))),
+        PointCloudModel,
+    )
+
+
+def test_a_diagonal_or_uneven_profile_keeps_its_coordinates() -> None:
+    diagonal = build_model(_profile(y=np.linspace(0.0, 5e-4, 8)))
+    uneven = build_model(
+        _profile(x=np.array([0.0, 1.0, 3.0, 4.0, 8.0, 9.5, 12.0, 13.0]) * 1e-6, y=np.zeros(8))
+    )
+
+    assert isinstance(diagonal, PointCloudModel)
+    assert isinstance(uneven, PointCloudModel)
+
+
+def test_a_single_column_with_an_absolute_axis_is_a_profile() -> None:
+    header = x3pio.Header(y=x3pio.Axis(x3pio.AxisType.ABSOLUTE, increment=1.0))
+    z = np.linspace(0.0, 1e-7, 6).reshape(6, 1)
+    y = (np.arange(6) * 2e-6).reshape(6, 1)
+    layer = x3pio.SurfaceLayer(z, None, y, header=header)
+    model = build_model(x3pio.Surface.from_layers([layer]))
+
+    assert isinstance(model, SurfaceModel)
+    assert model.data.shape == (6, 1)
+    assert model.y_scale == pytest.approx(2e-6)
