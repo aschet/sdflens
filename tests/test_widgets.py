@@ -427,7 +427,7 @@ def test_main_window_loads_file_and_switches_views(ramp_path: Path) -> None:
     assert window._open_action.isEnabled()
     assert window.windowTitle() == "ramp.sdf"
     assert window._info_panel.table.rowCount() == 11
-    assert window._stats_label.text() == "size = 5 \u00d7 8 \u00b5m"
+    assert window._stats_label.text() == "FOV 5 \u00d7 8 \u00b5m, PV 19 nm"
     assert window._path == QDir.toNativeSeparators(str(ramp_path))
     assert window.statusBar().currentMessage() == "Loaded ramp.sdf"
 
@@ -1407,7 +1407,7 @@ def test_an_irregular_surface_is_drawn_as_a_surface_in_3d_only(tmp_path: Path) -
     assert not window._view_2d_action.isEnabled()
     assert not window._view_profile_action.isEnabled()
     assert "points" not in window._stats_label.text()
-    assert window._stats_label.text().startswith("size = ")
+    assert window._stats_label.text().startswith("FOV ")
 
     cloud_path = tmp_path / "cloud.x3p"
     x3pio.write_points(cloud_path, make_cloud())
@@ -1671,4 +1671,18 @@ def test_the_chosen_layer_is_saved_as_an_sdf_file(
     np.testing.assert_allclose(
         sdfio.read(target).data, 10.0 * make_ramp(), atol=1e-8, equal_nan=True
     )
+    window.close()
+
+
+def test_status_text_of_a_profile_has_a_single_length(tmp_path: Path) -> None:
+    heights = np.arange(50) * 1e-9
+    row = tmp_path / "row.x3p"
+    x3pio.Profile.from_array(heights, x_scale=1e-6).save(row)
+    column = tmp_path / "column.x3p"
+    x3pio.Surface.from_array(heights.reshape(50, 1), x_scale=1e-6, y_scale=2e-6).save(column)
+    window = MainWindow()
+    _load(window, row)
+    assert window._stats_label.text() == "FOV 50 µm, PV 49 nm"
+    _load(window, column)
+    assert window._stats_label.text() == "FOV 100 µm, PV 49 nm"
     window.close()

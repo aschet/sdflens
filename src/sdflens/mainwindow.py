@@ -55,7 +55,7 @@ from .profileview import ProfileView
 from .settings import Settings
 from .surface import Model3D, SurfaceModel
 from .surfacefile import SurfaceFile, layer_count
-from .units import format_values
+from .units import format_length, format_values
 from .viewport import Viewport
 from .zscalebar import ZScaleBar
 
@@ -546,16 +546,25 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(Path(path).name if path else "")
 
     def _summary(self, model: Model3D, mesh: SurfaceMesh) -> str:
-        (x, y), unit = format_values([model.size_x, model.size_y])
+        """Return the field of view and the peak to valley height, and what else the view shows."""
+        sizes = [model.size_x, model.size_y]
+        if isinstance(model, SurfaceModel) and model.is_profile:
+            # A profile has one length: along x for a row, along y for a single column.
+            sizes = [model.size_y if model.num_points < 2 else model.size_x]
+        values, unit = format_values(sizes)
+        value_range = model.value_range
+        text = self.tr("FOV {field} {unit}, PV {height}").format(
+            field=" \u00d7 ".join(values),
+            unit=unit,
+            height=format_length(value_range.hi - value_range.lo),
+        )
         if isinstance(model, PointCloudModel) and model.grid is None:
-            return self.tr("size = {x} \u00d7 {y} {unit}, {count} points").format(
-                x=x, y=y, unit=unit, count=model.num_points
-            )
+            return self.tr("{text}, {count} points").format(text=text, count=model.num_points)
         if mesh.step > 1:
-            return self.tr("size = {x} \u00d7 {y} {unit}, 3D view downsampled by {step}").format(
-                x=x, y=y, unit=unit, step=mesh.step
+            return self.tr("{text}, 3D view downsampled by {step}").format(
+                text=text, step=mesh.step
             )
-        return self.tr("size = {x} \u00d7 {y} {unit}").format(x=x, y=y, unit=unit)
+        return text
 
     def _open_dialog(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
