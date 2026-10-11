@@ -480,6 +480,14 @@ class MainWindow(QMainWindow):
         """Whether the 2D and the profile view apply: to a regular grid, not to points."""
         return self._model is None or isinstance(self._model, SurfaceModel)
 
+    @property
+    def _has_profile_view(self) -> bool:
+        """Whether the profile view applies: to a regular grid, or to an irregular profile."""
+        model = self._model
+        return self._has_grid_views or (
+            isinstance(model, PointCloudModel) and model.profile_axis is not None
+        )
+
     def _choose_view(self, mode: str) -> None:
         """Show the view the user chose and prefer it for the next file."""
         self._view_preference = mode
@@ -538,8 +546,8 @@ class MainWindow(QMainWindow):
         self._save_as_action.setEnabled(loaded)
         self._export_action.setEnabled(loaded)
         self._copy_metadata_action.setEnabled(loaded)
-        for action in (self._view_2d_action, self._view_profile_action):
-            action.setEnabled(self._has_grid_views)
+        self._view_2d_action.setEnabled(self._has_grid_views)
+        self._view_profile_action.setEnabled(self._has_profile_view)
 
     def _update_title(self, path: str | None = None) -> None:
         # Qt appends the application display name to every window title.
@@ -551,6 +559,9 @@ class MainWindow(QMainWindow):
         if isinstance(model, SurfaceModel) and model.is_profile:
             # A profile has one length: along x for a row, along y for a single column.
             sizes = [model.size_y if model.num_points < 2 else model.size_x]
+        if isinstance(model, PointCloudModel) and model.profile_axis is not None:
+            # An irregular profile has one length, unless it runs along a diagonal.
+            sizes = [size for size in sizes if size > 0.0] or sizes[:1]
         values, unit = format_values(sizes)
         value_range = model.value_range
         text = self.tr("FOV {field} {unit}, PV {height}").format(
@@ -645,12 +656,15 @@ class MainWindow(QMainWindow):
         self._surface_view.set_surface(model, mesh)
         grid = model if isinstance(model, SurfaceModel) else None
         self._heatmap_view.set_model(grid)
-        self._profile_view.set_model(grid)
+        self._profile_view.set_model(model)
         self._colorbar.set_range(model.value_range, model.invalid_count > 0)
         self._info_panel.set_file(file)
         self._stats_label.setText(self._stats_text(model, mesh))
         self._z_bar.set_factor(1.0)
-        self._set_view_mode(self._view_preference if grid is not None else _VIEW_3D)
+        wanted = self._view_preference
+        if not self._has_grid_views and not (wanted == _VIEW_PROFILE and self._has_profile_view):
+            wanted = _VIEW_3D
+        self._set_view_mode(wanted)
         self._update_title(path)
         self._update_actions()
         name = Path(path).name
@@ -709,7 +723,7 @@ class MainWindow(QMainWindow):
         self._surface_view.set_surface(model, mesh, keep_view=True)
         grid = model if isinstance(model, SurfaceModel) else None
         self._heatmap_view.set_model(grid, keep_view=True)
-        self._profile_view.set_model(grid, keep_selection=True)
+        self._profile_view.set_model(model, keep_selection=True)
         self._colorbar.set_range(model.value_range, model.invalid_count > 0)
         self._stats_label.setText(self._stats_text(model, mesh))
         self._update_actions()

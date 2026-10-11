@@ -36,10 +36,11 @@ from PySide6.QtWidgets import (
 
 from .camera import Tool
 from .icons import load_icon
+from .pointcloud import PointCloudModel
 from .surface import SurfaceModel
 from .units import format_length, format_tick, nice_ticks, unit_for
 
-__all__ = ["ProfileView", "connect", "envelope"]
+__all__ = ["ProfileView", "connect", "envelope", "position_envelope"]
 
 _LEFT = 64
 _TOP = 8
@@ -96,6 +97,36 @@ def connect(
     return low, high
 
 
+def position_envelope(
+    values: NDArray[np.float64],
+    positions: NDArray[np.float64],
+    first: float,
+    last: float,
+    columns: int,
+) -> tuple[NDArray[np.intp], NDArray[np.float64], NDArray[np.float64]]:
+    """Return the columns holding measured points of a profile with irregular positions.
+
+    Like :func:`envelope`, but the interval ``[first, last)`` of positions is split into
+    ``columns`` equal parts, and a part covers the points whose position lies inside it. The
+    positions have to be in increasing order.
+
+    >>> columns, low, high = position_envelope(
+    ...     np.array([1.0, 2.0, 5.0, 7.0]), np.array([0.0, 1.0, 9.0, 9.5]), 0.0, 10.0, 2
+    ... )
+    >>> columns.tolist(), low.tolist(), high.tolist()
+    ([0, 1], [1.0, 5.0], [2.0, 7.0])
+    """
+    start, stop = np.searchsorted(positions, [first, last])
+    slot = np.floor((positions[start:stop] - first) / (last - first) * columns).astype(np.intp)
+    segment = values[start:stop]
+    keep = (slot >= 0) & (slot < columns) & np.isfinite(segment)
+    slot, segment = slot[keep], segment[keep]
+    if slot.size == 0:
+        return np.empty(0, np.intp), np.empty(0), np.empty(0)
+    begins = np.flatnonzero(np.diff(slot, prepend=-1))
+    return slot[begins], np.fmin.reduceat(segment, begins), np.fmax.reduceat(segment, begins)
+
+
 class _Plot(QWidget):
     """Height against position for one series; drag pans and the wheel zooms along x."""
 
@@ -106,6 +137,8 @@ class _Plot(QWidget):
         super().__init__(parent)
         self._values: NDArray[np.float64] = np.empty(0)
         self._step = 1.0
+        #: The positions of the points of an irregular profile, in increasing order.
+        self._positions: NDArray[np.float64] | None = None
         self._axis = "x"
         self._x0 = 0.0
         self._span = 1.0
@@ -115,10 +148,23 @@ class _Plot(QWidget):
         self._hover = -1  # index of the point under the cursor
         self.setMouseTracking(True)
 
-    def set_series(self, values: NDArray[np.float64], step: float, axis: str) -> None:
-        """Show ``values`` spaced ``step`` meters apart; a same-sized series keeps the zoom."""
-        same = len(values) == len(self._values) and step == self._step
-        self._values, self._step, self._axis = values, step, axis
+    def set_series(
+        self,
+        values: NDArray[np.float64],
+        step: float,
+        axis: str,
+        positions: NDArray[np.float64] | None = None,
+    ) -> None:
+        """Show ``values`` spaced ``step`` meters apart, or at ``positions`` if they are given.
+
+        A series of the same size keeps the zoom.
+        """
+        same = (
+            len(values) == len(self._values)
+            and step == self._step
+            and (positions is None) == (self._positions is None)
+        )
+        self._values, self._step, self._axis, self._positions = values, step, axis, positions
         self._hover = -1
         if same:
             self.update()
@@ -128,6 +174,10 @@ class _Plot(QWidget):
     def value_at(self, index: int) -> float:
         """Return the value of point ``index``."""
         return float(self._values[index])
+
+    def position_at(self, index: int) -> float:
+        """Return the position along the profile of point ``index`` in meters."""
+        return float(self._positions[index]) if self._positions is not None else index * self._step
 
     def set_tool(self, tool: Tool) -> None:
         """Set the action of the left mouse button; rotating pans."""
@@ -145,6 +195,8 @@ class _Plot(QWidget):
 
     def _full(self) -> tuple[float, float]:
         """Return the metric interval of all points, each taking one step."""
+        if self._positions is not None and len(self._positions) > 1:
+            return self._positions[0] - 0.5 * self._step, self._positions[-1] + 0.5 * self._step
         count = max(len(self._values), 1)
         return -0.5 * self._step, (count - 0.5) * self._step
 
@@ -166,7 +218,17 @@ class _Plot(QWidget):
         if not plot.contains(pos.toPoint()) or plot.width() < 1:
             return -1
         x = self._x0 + (pos.x() - plot.left()) / plot.width() * self._span
-        index = round(x / self._step)
+        if self._positions is not None:
+            # The nearest point of an irregular profile.
+            above = int(np.searchsorted(self._positions, x))
+            below = above - 1
+            nearer_below = below >= 0 and (
+                above >= len(self._values)
+                or x - self._positions[below] <= self._positions[above] - x
+            )
+            index = below if nearer_below else above
+        else:
+            index = round(x / self._step)
         return index if 0 <= index < len(self._values) else -1
 
     def paintEvent(self, event: QPaintEvent) -> None:
@@ -178,8 +240,16 @@ class _Plot(QWidget):
             return
 
         x_lo, x_hi = self._x0, self._x0 + self._span
-        first, last = x_lo / self._step, x_hi / self._step
-        start, stop = max(0, math.ceil(first)), min(len(self._values), math.floor(last) + 1)
+        if self._positions is not None:
+            # The points in view, with their neighbours so that a line reaches the edge.
+            start = max(0, int(np.searchsorted(self._positions, x_lo)) - 1)
+            stop = min(len(self._values), int(np.searchsorted(self._positions, x_hi)) + 1)
+            per_pixel = (stop - start) / plot.width()
+            first, last = x_lo, x_hi
+        else:
+            first, last = x_lo / self._step, x_hi / self._step
+            start, stop = max(0, math.ceil(first)), min(len(self._values), math.floor(last) + 1)
+            per_pixel = (last - first) / plot.width()
         visible = self._values[start:stop]
         z_lo, z_hi = self._z_range(visible)
 
@@ -187,7 +257,7 @@ class _Plot(QWidget):
         painter.setClipRect(plot)
         # The square cap draws a column that has a single point as a dot of one pixel.
         painter.setPen(QPen(_LINE_COLOR, 1.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.SquareCap))
-        if (last - first) / plot.width() >= 1.0:
+        if per_pixel >= 1.0:
             self._draw_envelope(painter, plot, first, last, z_lo, z_hi)
         else:
             self._draw_points(painter, plot, start, visible, z_lo, z_hi)
@@ -208,7 +278,12 @@ class _Plot(QWidget):
     def _draw_envelope(
         self, painter: QPainter, plot: QRect, first: float, last: float, z_lo: float, z_hi: float
     ) -> None:
-        columns, low, high = envelope(self._values, first, last, plot.width())
+        if self._positions is not None:
+            columns, low, high = position_envelope(
+                self._values, self._positions, first, last, plot.width()
+            )
+        else:
+            columns, low, high = envelope(self._values, first, last, plot.width())
         low, high = connect(columns, low, high)
         bottom, factor = plot.top() + plot.height(), plot.height() / (z_hi - z_lo)
         lines = [
@@ -232,8 +307,11 @@ class _Plot(QWidget):
         z_hi: float,
     ) -> None:
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        indices = np.arange(start, start + len(visible))
-        px = plot.left() + (indices * self._step - self._x0) / self._span * plot.width()
+        if self._positions is not None:
+            where = self._positions[start : start + len(visible)]
+        else:
+            where = np.arange(start, start + len(visible), dtype=np.float64) * self._step
+        px = plot.left() + (where - self._x0) / self._span * plot.width()
         py = plot.top() + plot.height() - (visible - z_lo) / (z_hi - z_lo) * plot.height()
         edges = np.diff(np.concatenate(([0], np.isfinite(visible), [0])).astype(int))
         for begin, end in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1), strict=True):
@@ -247,7 +325,7 @@ class _Plot(QWidget):
         """Mark the point under the cursor, if it is measured."""
         if not 0 <= self._hover < len(self._values) or not math.isfinite(self._values[self._hover]):
             return
-        x = plot.left() + (self._hover * self._step - self._x0) / self._span * plot.width()
+        x = plot.left() + (self.position_at(self._hover) - self._x0) / self._span * plot.width()
         y = plot.bottom() + 1 - (self._values[self._hover] - z_lo) / (z_hi - z_lo) * plot.height()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(QPen(self.palette().window().color(), 1.5))
@@ -262,10 +340,13 @@ class _Plot(QWidget):
         metrics = painter.fontMetrics()
         x_factor, x_symbol = unit_for(x_hi - x_lo)
         z_factor, z_symbol = unit_for(z_hi - z_lo)
-        x_max = (len(self._values) - 1) * self._step
+        if self._positions is not None:
+            x_min, x_max = float(self._positions[0]), float(self._positions[-1])
+        else:
+            x_min, x_max = 0.0, (len(self._values) - 1) * self._step
         bottom = plot.top() + plot.height()
 
-        for tick in nice_ticks(max(x_lo, 0.0), min(x_hi, x_max), max(2, plot.width() // 90 + 1)):
+        for tick in nice_ticks(max(x_lo, x_min), min(x_hi, x_max), max(2, plot.width() // 90 + 1)):
             px = plot.left() + int((tick - x_lo) / (x_hi - x_lo) * plot.width())
             painter.drawLine(px, bottom, px, bottom + _TICK_LENGTH)
             label = format_tick(tick, x_factor)
@@ -352,6 +433,8 @@ class ProfileView(QWidget):
         """Create an empty view."""
         super().__init__(parent)
         self._model: SurfaceModel | None = None
+        #: The positions, the heights and the axis of an irregular profile, in place of a model.
+        self._irregular: tuple[NDArray[np.float64], NDArray[np.float64], str] | None = None
         self._values: NDArray[np.float64] = np.empty(0)
         self._step = 1.0
 
@@ -384,21 +467,39 @@ class ProfileView(QWidget):
         self._save.clicked.connect(self.save_requested)
         self._configure(1)
 
-    def set_model(self, model: SurfaceModel | None, *, keep_selection: bool = False) -> None:
+    def set_model(
+        self, model: SurfaceModel | PointCloudModel | None, *, keep_selection: bool = False
+    ) -> None:
         """Show the first profile of ``model`` (or nothing), along x.
 
-        With ``keep_selection``, ``model`` has the shape of the one before, and the direction and
-        the number of the profile stay.
+        A profile whose points are not evenly spaced is shown at their positions; other points
+        are not shown. With ``keep_selection``, ``model`` has the shape of the one before, and
+        the direction and the number of the profile stay.
         """
+        self._irregular = None
+        if isinstance(model, PointCloudModel):
+            if model.profile_axis is not None:
+                column = 0 if model.profile_axis == "x" else 1
+                order = np.argsort(model.points[:, column], kind="stable")
+                self._irregular = (
+                    model.points[order, column],
+                    model.points[order, 2],
+                    model.profile_axis,
+                )
+            model = None
         self._model = model
         if keep_selection:
             self._show()
             return
+        # A single column is a profile along y; a row cannot be chosen from it.
+        along_y = model is not None and model.num_points < 2 <= model.num_profiles
         self._direction.blockSignals(True)
-        self._direction.setCurrentIndex(0)
+        self._direction.setCurrentIndex(1 if along_y else 0)
         self._direction.blockSignals(False)
-        can_turn = model is not None and model.num_profiles > 1
-        cast(QStandardItemModel, self._direction.model()).item(1).setEnabled(can_turn)
+        items = cast(QStandardItemModel, self._direction.model())
+        items.item(0).setEnabled(not along_y)
+        items.item(1).setEnabled(model is not None and model.num_profiles > 1)
+        self._direction.setEnabled(self._irregular is None)
         self._configure(1)
 
     def set_lut(self, lut: NDArray[np.uint8]) -> None:
@@ -430,6 +531,8 @@ class ProfileView(QWidget):
 
     @property
     def _along_x(self) -> bool:
+        if self._irregular is not None:
+            return self._irregular[2] == "x"
         return self._direction.currentIndex() == 0
 
     def _configure(self, index: int) -> None:
@@ -438,6 +541,8 @@ class ProfileView(QWidget):
         count = 0
         if model is not None:
             count = model.num_profiles if self._along_x else model.num_points
+        elif self._irregular is not None:
+            count = 1
         self._label.setText(self.tr("Profile:") if self._along_x else self.tr("Column:"))
         for widget in (self._slider, self._spin):
             widget.blockSignals(True)
@@ -451,6 +556,13 @@ class ProfileView(QWidget):
 
     def _show(self) -> None:
         model = self._model
+        if self._irregular is not None:
+            positions, self._values, axis = self._irregular
+            # The mean distance between the points stands for the step.
+            self._step = float(positions[-1] - positions[0]) / max(len(positions) - 1, 1) or 1.0
+            self._save.setEnabled(False)  # an irregular profile cannot be saved as a profile
+            self._plot.set_series(self._values, self._step, axis, positions)
+            return
         if model is None:
             self._values, self._step = np.empty(0), 1.0
         elif self._along_x:
@@ -462,13 +574,19 @@ class ProfileView(QWidget):
         self._plot.set_series(self._values, self._step, "x" if self._along_x else "y")
 
     def _on_point_hovered(self, index: int) -> None:
-        if index < 0 or self._model is None:
+        if index < 0 or (self._model is None and self._irregular is None):
             self.hovered.emit("")
             return
         value = self._plot.value_at(index)
         z_text = format_length(value) if math.isfinite(value) else self.tr("not measured")
-        position = format_length(index * self._step)
-        if self._along_x:
+        position = format_length(self._plot.position_at(index))
+        if self._irregular is not None:
+            text = (
+                self.tr("x = {position}, z = {z}")
+                if self._along_x
+                else self.tr("y = {position}, z = {z}")
+            )
+        elif self._along_x:
             text = self.tr("x = {position}, z = {z} (profile {number}, point {point})")
         else:
             text = self.tr("y = {position}, z = {z} (column {number}, point {point})")

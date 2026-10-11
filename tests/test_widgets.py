@@ -1685,4 +1685,51 @@ def test_status_text_of_a_profile_has_a_single_length(tmp_path: Path) -> None:
     assert window._stats_label.text() == "FOV 50 µm, PV 49 nm"
     _load(window, column)
     assert window._stats_label.text() == "FOV 100 µm, PV 49 nm"
+    # a single column is a profile along y, and it is shown so
+    assert window._profile_view._direction.currentIndex() == 1
+    assert window._profile_view._plot._values.size == 50
+    window.close()
+
+
+def test_loading_a_profile_with_unusable_positions_says_that_the_step_is_assumed(
+    tmp_path: Path,
+) -> None:
+    header = x3pio.Header(x=x3pio.Axis(x3pio.AxisType.ABSOLUTE), y=x3pio.Axis(increment=2e-6))
+    positions = np.array([4e-4, -9e303, 8e-308, 1e300, 5e-300, 7e299, 1.0, 2.0])
+    layer = x3pio.ProfileLayer(np.linspace(0.0, 1e-7, 8), positions, None, header=header)
+    path = tmp_path / "damaged.x3p"
+    x3pio.Profile.from_layers([layer]).save(path)
+    window = MainWindow()
+    _load(window, path)
+
+    assert "assumed" in window.statusBar().currentMessage()
+    assert window._stats_label.text() == "FOV 16 µm, PV 100 nm"
+    window.close()
+
+
+def test_an_irregular_profile_is_shown_in_the_profile_view_at_its_positions(
+    tmp_path: Path,
+) -> None:
+    positions = np.array([0.0, 1.0, 3.0, 4.0, 8.0, 9.5, 12.0]) * 1e-6
+    path = tmp_path / "irregular.x3p"
+    x3pio.Profile.from_points(np.column_stack([positions, np.zeros(7), positions * 0.1])).save(path)
+    window = MainWindow()
+    _load(window, path)
+
+    assert window._view_profile_action.isEnabled()
+    assert not window._view_2d_action.isEnabled()
+    window._view_profile_action.trigger()
+    assert window._stack.currentWidget() is window._profile_view
+    assert not window._profile_view._save.isEnabled()  # it is no profile that could be saved
+    plot = window._profile_view._plot
+    plot.resize(500, 300)
+    assert plot.position_at(4) == pytest.approx(8e-6)
+    rect = plot._plot_rect()
+    x = rect.left() + (8.2e-6 - plot._x0) / plot._span * rect.width()
+    assert plot._index_at(QPointF(x, rect.center().y())) == 4  # the nearest point
+
+    texts: list[str] = []
+    window._profile_view.hovered.connect(texts.append)
+    plot._set_hover(4)
+    assert texts[-1] == "x = 8 µm, z = 800 nm"
     window.close()

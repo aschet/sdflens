@@ -47,6 +47,8 @@ class PointCloudModel:
     extent_x: float
     extent_y: float
     grid: NDArray[np.float64] | None = None
+    #: The axis along which an irregular profile runs, ``"x"`` or ``"y"``; ``None`` otherwise.
+    profile_axis: str | None = None
 
     @classmethod
     def from_grid(cls, grid: NDArray[np.float64]) -> PointCloudModel:
