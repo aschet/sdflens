@@ -3,3 +3,22 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 *.sdf binary
+*.png binary
+
+# Text files are LF in the repository and in the working tree.
+*.py text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.svg text eol=lf
+*.sh text eol=lf
+*.spec text eol=lf
+LICENSES/*.txt text eol=lf
+LICENSE text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# The files of the Windows build are CRLF.
+*.ps1 text eol=crlf
+*.wxs text eol=crlf
