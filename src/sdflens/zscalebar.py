@@ -64,7 +64,7 @@ class ZScaleBar(QToolBar):
         self._spin.setStepType(QDoubleSpinBox.StepType.AdaptiveDecimalStepType)
         self._spin.valueChanged.connect(self._on_user)
         true_scale = QAction(load_icon("reset"), self.tr("Reset"), self)
-        true_scale.setToolTip(self.tr("Reset height scale (true metric scale, 1\u00d7)"))
+        true_scale.setToolTip(self.tr("Reset height scale"))
         true_scale.triggered.connect(lambda: self.set_factor(1.0))
         for widget in (self._icon, self._slider, self._spin):
             self.addWidget(widget)
