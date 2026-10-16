@@ -20,11 +20,13 @@ from .surface import SurfaceModel
 __all__ = [
     "FILE_ERRORS",
     "FILE_FILTER",
+    "ProfileSpacing",
     "SurfaceFile",
     "build_mesh",
     "build_model",
     "is_grid",
     "layer_count",
+    "profile_of",
     "read_surface_file",
 ]
 
@@ -65,7 +67,7 @@ def layer_count(file: SurfaceFile) -> int:
     return 1 if isinstance(file, sdfio.SdfFile) else len(file.layers)
 
 
-class _Profile(NamedTuple):
+class ProfileSpacing(NamedTuple):
     """The spacing of a profile along x."""
 
     #: The spacing in meters; ``None`` if the points are not evenly spaced.
@@ -86,7 +88,7 @@ def _usable(values: np.ndarray) -> bool:
     return bool(np.all(np.isfinite(values)) and np.max(np.abs(values)) < _PLAUSIBLE)
 
 
-def _profile_of(layer: x3pio.Layer) -> _Profile | None:
+def profile_of(layer: x3pio.Layer) -> ProfileSpacing | None:
     """Return the spacing of ``layer`` if it is a profile, which runs along x.
 
     If the x axis is incremental, its increment is the spacing and the y axis, which a profile
@@ -104,15 +106,19 @@ def _profile_of(layer: x3pio.Layer) -> _Profile | None:
     across = layer.y
     varies = across is not None and _usable(np.ravel(across)) and np.ptp(np.ravel(across)) > 0.0
     if header.x.is_incremental:
-        return _Profile(None) if varies else _Profile(abs(header.x.increment))
+        return ProfileSpacing(None) if varies else ProfileSpacing(abs(header.x.increment))
     values = np.ravel(layer.x) if layer.x is not None else np.empty(0)
     mean = (values[-1] - values[0]) / (values.size - 1) if values.size > 1 else 0.0
     if values.size > 1 and _usable(values) and mean != 0.0 and np.all(np.diff(values) * mean > 0.0):
         if not np.all(np.abs(np.diff(values) - mean) <= _EVEN * abs(mean)):
-            return _Profile(None)
-        return _Profile(None) if varies else _Profile(abs(mean))
+            return ProfileSpacing(None)
+        return ProfileSpacing(None) if varies else ProfileSpacing(abs(mean))
     if header.y.is_incremental:
-        return _Profile(None) if varies else _Profile(abs(header.y.increment), assumed=True)
+        return (
+            ProfileSpacing(None)
+            if varies
+            else ProfileSpacing(abs(header.y.increment), assumed=True)
+        )
     return None
 
 
@@ -136,7 +142,7 @@ def build_model(file: SurfaceFile, layer: int = 0) -> SurfaceModel | PointCloudM
         return SurfaceModel.from_grid(
             np.atleast_2d(chosen.z), abs(header.x.increment), abs(header.y.increment)
         )
-    profile = _profile_of(chosen)
+    profile = profile_of(chosen)
     if profile is not None and profile.step is not None:
         data = np.asarray(chosen.z, dtype=np.float64).reshape(1, -1)
         return SurfaceModel.from_grid(
