@@ -317,15 +317,3 @@ def test_a_diagonal_or_uneven_profile_keeps_its_coordinates() -> None:
 
     assert isinstance(diagonal, PointCloudModel)
     assert isinstance(uneven, PointCloudModel)
-
-
-def test_a_single_column_with_an_absolute_axis_is_a_profile() -> None:
-    header = x3pio.Header(y=x3pio.Axis(x3pio.AxisType.ABSOLUTE, increment=1.0))
-    z = np.linspace(0.0, 1e-7, 6).reshape(6, 1)
-    y = (np.arange(6) * 2e-6).reshape(6, 1)
-    layer = x3pio.SurfaceLayer(z, None, y, header=header)
-    model = build_model(x3pio.Surface.from_layers([layer]))
-
-    assert isinstance(model, SurfaceModel)
-    assert model.data.shape == (6, 1)
-    assert model.y_scale == pytest.approx(2e-6)

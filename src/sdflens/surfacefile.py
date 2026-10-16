@@ -66,12 +66,11 @@ def layer_count(file: SurfaceFile) -> int:
 
 
 class _Profile(NamedTuple):
-    """A profile of a layer: the axis along which it runs, and its spacing if it is regular."""
+    """The spacing of a profile along x."""
 
-    axis: str
     #: The spacing in meters; ``None`` if the points are not evenly spaced.
     step: float | None
-    #: Whether the spacing was taken from the other lateral axis, as the positions are not usable.
+    #: Whether the spacing was taken from the y axis, as the positions are not usable.
     assumed: bool = False
 
 
@@ -88,54 +87,33 @@ def _usable(values: np.ndarray) -> bool:
 
 
 def _profile_of(layer: x3pio.Layer) -> _Profile | None:
-    """Return the profile that ``layer`` is, if it is one with an absolute axis.
+    """Return the spacing of ``layer`` if it is a profile, which runs along x.
 
-    The axis along the profile decides. If it is incremental, its increment is the spacing and the
-    other lateral axis, which a profile does not use, is ignored. Positions along an absolute
-    axis that are evenly spaced give their spacing. Positions that cannot be used, as they are
-    not finite or neither increasing nor decreasing, are replaced by the increment of the other
-    axis if that is incremental; the spacing is then assumed. Positions that can be used but are
-    not evenly spaced, and positions across the profile that vary, as along a diagonal, make an
-    irregular profile, whose spacing is ``None``. Without usable positions or another regular
-    axis to take the spacing from, the result is ``None``, as for a layer that is no profile.
+    If the x axis is incremental, its increment is the spacing and the y axis, which a profile
+    does not use, is ignored. Positions along an absolute x axis that are evenly spaced give their
+    spacing. Positions that cannot be used, as they are not finite or neither increasing nor
+    decreasing, are replaced by the increment of the y axis if that is incremental; the spacing
+    is then assumed. Positions that can be used but are not evenly spaced, and positions across
+    the profile that vary, as along a diagonal, make an irregular profile, whose spacing is
+    ``None``. Without usable positions or a regular y axis to take the spacing from, the result is
+    ``None``, as for a layer that is no profile.
     """
-    if isinstance(layer, x3pio.ProfileLayer):
-        along_x = True
-    elif isinstance(layer, x3pio.SurfaceLayer) and layer.z.size > 1 and 1 in layer.z.shape:
-        along_x = layer.z.shape[0] == 1
-    else:
+    if not isinstance(layer, x3pio.ProfileLayer):
         return None
-    name = "x" if along_x else "y"
     header = layer.header
-    axis, other = (header.x, header.y) if along_x else (header.y, header.x)
-    positions, across = (layer.x, layer.y) if along_x else (layer.y, layer.x)
-    step: float | None
-    if axis.is_incremental:
-        step = abs(axis.increment)
-    else:
-        step, assumed = None, False
-        values = np.ravel(positions) if positions is not None else np.empty(0)
-        mean = (values[-1] - values[0]) / (values.size - 1) if values.size > 1 else 0.0
-        if (
-            values.size > 1
-            and _usable(values)
-            and mean != 0.0
-            and np.all(np.diff(values) * mean > 0.0)
-        ):
-            if np.all(np.abs(np.diff(values) - mean) <= _EVEN * abs(mean)):
-                step = abs(mean)
-            else:
-                return _Profile(name, None)
-        elif other.is_incremental:
-            step, assumed = abs(other.increment), True
-        else:
-            return None
-        if across is not None and _usable(np.ravel(across)) and np.ptp(np.ravel(across)) > 0.0:
-            return _Profile(name, None)
-        return _Profile(name, step, assumed)
-    if across is not None and _usable(np.ravel(across)) and np.ptp(np.ravel(across)) > 0.0:
-        return _Profile(name, None)
-    return _Profile(name, step)
+    across = layer.y
+    varies = across is not None and _usable(np.ravel(across)) and np.ptp(np.ravel(across)) > 0.0
+    if header.x.is_incremental:
+        return _Profile(None) if varies else _Profile(abs(header.x.increment))
+    values = np.ravel(layer.x) if layer.x is not None else np.empty(0)
+    mean = (values[-1] - values[0]) / (values.size - 1) if values.size > 1 else 0.0
+    if values.size > 1 and _usable(values) and mean != 0.0 and np.all(np.diff(values) * mean > 0.0):
+        if not np.all(np.abs(np.diff(values) - mean) <= _EVEN * abs(mean)):
+            return _Profile(None)
+        return _Profile(None) if varies else _Profile(abs(mean))
+    if header.y.is_incremental:
+        return _Profile(None) if varies else _Profile(abs(header.y.increment), assumed=True)
+    return None
 
 
 def build_model(file: SurfaceFile, layer: int = 0) -> SurfaceModel | PointCloudModel:
@@ -160,15 +138,14 @@ def build_model(file: SurfaceFile, layer: int = 0) -> SurfaceModel | PointCloudM
         )
     profile = _profile_of(chosen)
     if profile is not None and profile.step is not None:
-        heights = np.asarray(chosen.z, dtype=np.float64)
-        data = heights.reshape(1, -1) if profile.axis == "x" else heights.reshape(-1, 1)
+        data = np.asarray(chosen.z, dtype=np.float64).reshape(1, -1)
         return SurfaceModel.from_grid(
             data, profile.step, profile.step, step_assumed=profile.assumed
         )
     points = chosen.points(coordinate_system=x3pio.CoordinateSystem.VIEW)
     if profile is not None:
         irregular = PointCloudModel.from_points(points.reshape(-1, 3))
-        return replace(irregular, profile_axis=profile.axis)
+        return replace(irregular, profile_axis="x")
     if isinstance(chosen, x3pio.SurfaceLayer):
         return PointCloudModel.from_grid(points)
     return PointCloudModel.from_points(points.reshape(-1, 3))
