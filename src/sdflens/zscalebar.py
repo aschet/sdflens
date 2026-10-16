@@ -53,7 +53,8 @@ class ZScaleBar(QToolBar):
 
         self._icon = QSvgWidget(self)
         self._icon.load(themed_svg("z-scale"))
-        self._icon.setFixedSize(20, 20)
+        self._icon.setFixedSize(self.iconSize())
+        self.iconSizeChanged.connect(self._icon.setFixedSize)
         self._icon.setToolTip(self.tr("Z scale (height exaggeration)"))
         self._slider = QSlider(Qt.Orientation.Horizontal, self)
         self._slider.setRange(0, SLIDER_MAX)

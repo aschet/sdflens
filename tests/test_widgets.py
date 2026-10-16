@@ -875,10 +875,14 @@ def test_icon_uses_the_text_color_also_when_checked() -> None:
 
 
 def test_z_scale_icon_is_drawn_from_the_svg() -> None:
-    icon = ZScaleBar().findChild(QSvgWidget)
+    bar = ZScaleBar()  # the icon belongs to the bar and is gone with it
+    icon = bar.findChild(QSvgWidget)
 
     assert icon is not None
     assert icon.renderer().isValid()
+    assert icon.size() == bar.iconSize()
+    bar.setIconSize(bar.iconSize() * 2)
+    assert icon.size() == bar.iconSize()
 
 
 def test_z_controls_stay_in_sync() -> None:
