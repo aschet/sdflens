@@ -39,7 +39,6 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
-    QSizePolicy,
     QToolBar,
 )
 
@@ -426,7 +425,12 @@ def test_main_window_loads_file_and_switches_views(ramp_path: Path) -> None:
     assert window._model is not None
     assert window._open_action.isEnabled()
     assert window.windowTitle() == "ramp.sdf"
-    assert window._info_panel.table.rowCount() == 11
+    assert [section.title for section in window._info_panel.sections] == [
+        "File",
+        "Data",
+        "Instrument",
+        "Probing",
+    ]
     assert window._stats_label.text() == "FOV 5 \u00d7 8 \u00b5m, PV 19 nm"
     assert window._path == QDir.toNativeSeparators(str(ramp_path))
     assert window.statusBar().currentMessage() == "Loaded ramp.sdf"
@@ -461,14 +465,10 @@ def test_x3p_surface_shows_its_metadata_and_vendor_extensions(tmp_path: Path) ->
     window = MainWindow()
     _load(window, path)
     panel = window._info_panel
-    names = [
-        item.text()
-        for item in (panel.table.item(row, 0) for row in range(panel.table.rowCount()))
-        if item is not None
-    ]
+    names = [name for section in panel.sections for name, _ in section.rows]
 
     assert "Revision" in names
-    assert "MatrixDimension.SizeX" in names
+    assert "Dimension" in names
     assert "Creator" in names
     assert not panel.extensions.isHidden()
     assert panel.trailer.isHidden()
@@ -687,7 +687,7 @@ def test_information_dock_shows_the_header_and_can_be_toggled(ramp_path: Path) -
     assert window._info_dock.isVisible()
     _load(window, ramp_path)
 
-    assert window._info_panel.table.rowCount() == 11
+    assert len(window._info_panel.sections) == 4
     assert window._export_action.isEnabled()
     window._info_toggle_action.trigger()
     assert not window._info_dock.isVisible()
@@ -696,17 +696,31 @@ def test_information_dock_shows_the_header_and_can_be_toggled(ramp_path: Path) -
     window.close()
 
 
-def test_information_table_has_no_header_and_fits_its_rows(ramp_path: Path) -> None:
+def test_information_panel_shows_labelled_values_that_can_be_selected(ramp_path: Path) -> None:
     window = MainWindow()
     _load(window, ramp_path)
-    table = window._info_panel.table
+    panel = window._info_panel
+    texts = [label.text() for label in panel.findChildren(QLabel)]
 
-    assert table.horizontalHeader().isHidden()
-    assert table.selectionMode() == QAbstractItemView.SelectionMode.NoSelection
-    content = table.verticalHeader().length() + 2 * table.frameWidth()
-    assert table.sizeHint().height() >= content  # a short table is shown completely
-    assert table.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Fixed
-    assert table.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    # The headings are in capitals, the labels and the values are separate texts.
+    assert texts[:2] == ["FILE", "Format"]
+    assert "SDF binary" in texts
+    assert "Dimension" in texts
+    assert all(
+        label.textInteractionFlags() & Qt.TextInteractionFlag.TextSelectableByMouse
+        for label in panel.findChildren(QLabel)
+        if not label.text().isupper()
+    )
+    # The values of all sections start at the same place.
+    values = [label for label in panel.findChildren(QLabel) if label.text() == "SDF binary"]
+    steps = [label for label in panel.findChildren(QLabel) if "\u00d7" in label.text()]
+    assert values
+    assert steps
+    assert values[0].mapTo(panel, QPoint(0, 0)).x() == steps[0].mapTo(panel, QPoint(0, 0)).x()
+    # Without a trailer or extensions there is nothing for them.
+    assert panel.trailer.isHidden()
+    assert panel.extensions.isHidden()
+    window.close()
 
 
 def test_file_dialogs_start_in_documents_and_remember_the_last_folder(

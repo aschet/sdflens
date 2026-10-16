@@ -10,24 +10,24 @@ from datetime import datetime
 from typing import cast
 
 import x3pio
-from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtCore import QDateTime, QLocale, QPoint, Qt, Signal
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QAbstractScrollArea,
-    QHeaderView,
+    QFrame,
+    QGridLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QMenu,
     QPlainTextEdit,
-    QSizePolicy,
-    QTableWidget,
-    QTableWidgetItem,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 from sdfio import SdfFile
 
+from .fileinfo import InfoSection, describe_file
 from .icons import load_icon
 from .surfacefile import SurfaceFile
 
@@ -42,8 +42,8 @@ __all__ = [
 #: Width in characters that fits the longest values, such as the revision of an x3p file.
 _MIN_COLUMNS = 48
 
-#: A table of at most this many rows is shown completely; a longer one scrolls.
-_MAX_FIXED_ROWS = 12
+#: The trailer and the list of extensions show at most this many lines before they scroll.
+_MAX_BLOCK_LINES = 10
 
 
 def metadata_rows(file: SurfaceFile) -> list[tuple[str, str]]:
@@ -163,8 +163,16 @@ def format_metadata(file: SurfaceFile) -> str:
     return "\n".join(lines) + "\n"
 
 
-class InfoPanel(QWidget):
-    """Read-only table of the header fields with the trailer or the vendor extensions below.
+def _format_date(value: datetime) -> str:
+    """Write ``value`` in the local time and the language of the system."""
+    return QLocale().toString(QDateTime(value).toLocalTime(), QLocale.FormatType.ShortFormat)
+
+
+class InfoPanel(QScrollArea):
+    """Read-only description of the loaded file in sections of labelled values.
+
+    The sections are those of :func:`~sdflens.fileinfo.describe_file`, as in sdflens web. Below them
+    an SDF file has its trailer and an x3p file its vendor extensions, each only if it has some.
 
     ``extension_save_requested(name)`` is emitted when "Save as" is chosen in the context menu of a
     vendor extension; ``name`` is its ID, or its path for ISO 25178-72:2017.
@@ -176,63 +184,112 @@ class InfoPanel(QWidget):
         """Create an empty panel."""
         super().__init__(parent)
         self.setMinimumWidth(_MIN_COLUMNS * self.fontMetrics().averageCharWidth())
-        self.table = QTableWidget(0, 2, self)
-        self.table.verticalHeader().hide()
-        self.table.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        header = self.table.horizontalHeader()
-        header.hide()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        #: The sections that are shown, in order; empty without a file.
+        self.sections: list[InfoSection] = []
 
         self.trailer = QPlainTextEdit(self)
         self.trailer.setReadOnly(True)
-        self._trailer_label = QLabel(self.tr("Trailer"), self)
         self.extensions = QListWidget(self)
         self.extensions.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.extensions.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.extensions.customContextMenuRequested.connect(self._show_extension_menu)
-        self._extensions_label = QLabel(self.tr("Vendor extensions"), self)
+        self.trailer.hide()
+        self.extensions.hide()
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.table)
-        layout.addWidget(self._trailer_label)
-        layout.addWidget(self.trailer, 1)
-        layout.addWidget(self._extensions_label)
-        layout.addWidget(self.extensions, 1)
-        self._show_extensions(False)
+        self._content = QWidget(self)
+        self._layout = QVBoxLayout(self._content)
+        self._layout.setContentsMargins(12, 10, 12, 10)
+        self._layout.setSpacing(6)
+        self.setWidget(self._content)
 
     def set_file(self, file: SurfaceFile | None) -> None:
-        """Show the header of ``file`` and its trailer or vendor extensions, or nothing."""
-        rows = metadata_rows(file) if file is not None else []
-        self.table.setRowCount(len(rows))
-        for row, (name, value) in enumerate(rows):
-            self.table.setItem(row, 0, QTableWidgetItem(name))
-            self.table.setItem(row, 1, QTableWidgetItem(value))
-        self._fit_table(len(rows))
-
-        is_sdf = isinstance(file, SdfFile)
-        self._show_extensions(file is not None and not is_sdf)
-        self.trailer.setPlainText(trailer_text(file) if isinstance(file, SdfFile) else "")
-        self.extensions.clear()
-        if file is not None and not isinstance(file, SdfFile):
-            self.extensions.addItems(extension_names(file))
-
-    def _fit_table(self, rows: int) -> None:
-        """Show a short table completely, and let a long one scroll in the space it gets."""
-        fixed = rows <= _MAX_FIXED_ROWS
-        scrollbar = (
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff if fixed else Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        """Show the description of ``file`` and its trailer or vendor extensions, or nothing."""
+        self._clear()
+        self.sections = describe_file(file, _format_date) if file is not None else []
+        # The values of all sections start at the same place, after the longest label.
+        metrics = self.fontMetrics()
+        label_width = max(
+            (
+                metrics.horizontalAdvance(self.tr(name))
+                for section in self.sections
+                for name, _ in section.rows
+            ),
+            default=0,
         )
-        vertical = QSizePolicy.Policy.Fixed if fixed else QSizePolicy.Policy.Expanding
-        self.table.setVerticalScrollBarPolicy(scrollbar)
-        self.table.setSizePolicy(QSizePolicy.Policy.Preferred, vertical)
-        self.table.updateGeometry()
-        stretch = 0 if fixed else 2
-        cast(QVBoxLayout, self.layout()).setStretchFactor(self.table, stretch)
+        for section in self.sections:
+            self._add_heading(section.title)
+            if section.text:
+                self._layout.addWidget(self._selectable(section.text, muted=False))
+            else:
+                self._layout.addWidget(self._rows(section.rows, label_width))
+
+        text = trailer_text(file).strip() if isinstance(file, SdfFile) else ""
+        self.trailer.setPlainText(text)
+        names = extension_names(file) if file is not None else []
+        self.extensions.clear()
+        self.extensions.addItems(names)
+        self.extensions.setCurrentRow(-1)
+        self.extensions.clearSelection()
+        if text:
+            self._add_heading("Trailer")
+            self._show_block(self.trailer, text.count("\n") + 1)
+        if names:
+            self._add_heading("Vendor extensions")
+            self._show_block(self.extensions, len(names))
+        self._layout.addStretch(1)
+
+    def _clear(self) -> None:
+        """Remove what is shown, keeping the trailer and the extensions for the next file."""
+        while (item := self._layout.takeAt(0)) is not None:
+            widget = item.widget()
+            if widget in (self.trailer, self.extensions):
+                cast(QWidget, widget).hide()
+            elif widget is not None:
+                widget.deleteLater()
+
+    def _add_heading(self, title: str) -> None:
+        heading = QLabel(self.tr(title).upper(), self._content)
+        font = heading.font()
+        font.setBold(True)
+        font.setPointSizeF(font.pointSizeF() * 0.85)
+        heading.setFont(font)
+        heading.setForegroundRole(QPalette.ColorRole.PlaceholderText)
+        heading.setContentsMargins(0, 10, 0, 0)
+        self._layout.addWidget(heading)
+
+    def _selectable(self, text: str, *, muted: bool) -> QLabel:
+        """Return a label that wraps long text and lets it be selected and copied."""
+        label = QLabel(text, self._content)
+        label.setWordWrap(True)
+        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        if muted:
+            label.setForegroundRole(QPalette.ColorRole.PlaceholderText)
+        return label
+
+    def _rows(self, rows: tuple[tuple[str, str], ...], label_width: int) -> QWidget:
+        """Return the labelled values of a section: the label muted, the value beside it."""
+        grid = QWidget(self._content)
+        layout = QGridLayout(grid)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setHorizontalSpacing(12)
+        layout.setVerticalSpacing(3)
+        layout.setColumnStretch(1, 1)
+        layout.setColumnMinimumWidth(0, label_width)
+        for index, (label, value) in enumerate(rows):
+            name = self._selectable(self.tr(label), muted=True)
+            name.setWordWrap(False)
+            layout.addWidget(name, index, 0, Qt.AlignmentFlag.AlignTop)
+            layout.addWidget(self._selectable(value, muted=False), index, 1)
+        return grid
+
+    def _show_block(self, block: QWidget, lines: int) -> None:
+        """Show the trailer or the extensions with room for their lines, at most ten of them."""
+        shown = min(lines, _MAX_BLOCK_LINES)
+        block.setFixedHeight((shown + 1) * self.fontMetrics().lineSpacing() + 8)
+        self._layout.addWidget(block)
+        block.show()
 
     def extension_menu(self, item: QListWidgetItem) -> QMenu:
         """Return the context menu of the vendor extension ``item``."""
@@ -246,9 +303,3 @@ class InfoPanel(QWidget):
         item = self.extensions.itemAt(position) or self.extensions.currentItem()
         if item is not None:
             self.extension_menu(item).popup(self.extensions.viewport().mapToGlobal(position))
-
-    def _show_extensions(self, extensions: bool) -> None:
-        self._trailer_label.setVisible(not extensions)
-        self.trailer.setVisible(not extensions)
-        self._extensions_label.setVisible(extensions)
-        self.extensions.setVisible(extensions)
