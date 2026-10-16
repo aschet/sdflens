@@ -348,8 +348,9 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(surface)
 
         info = QWidget(self)
+        info.setObjectName("infoBody")
         info_layout = QVBoxLayout(info)
-        info_layout.setContentsMargins(0, 0, 0, 0)
+        info_layout.setContentsMargins(0, 0, 0, 8)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         for action in (self._export_action, self._copy_metadata_action):

@@ -1807,3 +1807,16 @@ def test_the_profile_overview_shows_where_the_profile_lies_while_the_slider_is_u
     overview._timer.timeout.emit()
     assert overview.isHidden()
     window.close()
+
+
+def test_theme_follows_the_color_scheme(qapp):
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QPalette
+
+    from sdflens.theme import apply_theme, stylesheet
+
+    apply_theme(qapp)
+    assert qapp.styleSheet()
+    assert qapp.palette().color(QPalette.ColorRole.Highlight).isValid()
+    assert "#5aa2e8" in stylesheet(Qt.ColorScheme.Dark)
+    assert "#2f6fb0" in stylesheet(Qt.ColorScheme.Light)

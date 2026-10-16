@@ -61,6 +61,13 @@ class ColorBar(QWidget):
         """Draw the gradient, ticks and legend."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        card = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        painter.setPen(QPen(self.palette().mid().color(), 1.0))
+        painter.setBrush(self.palette().base())
+        painter.drawRoundedRect(card, 10, 10)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         text_color = self.palette().windowText().color()
         painter.setPen(text_color)
 
