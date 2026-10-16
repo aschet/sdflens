@@ -40,7 +40,7 @@ __all__ = [
 _MIN_COLUMNS = 28
 
 #: The trailer and the list of extensions always have room for this many lines.
-_MAX_BLOCK_LINES = 10
+_MIN_BLOCK_LINES = 3
 
 
 def extension_names(file: SurfaceFile) -> list[str]:
@@ -209,9 +209,9 @@ class InfoPanel(QScrollArea):
         return grid
 
     def _show_block(self, block: QWidget, lines: int) -> None:
-        """Show the trailer or the extensions: room for ten lines, more where the panel has it."""
+        """Show the trailer or the extensions: the height the panel has left."""
         spacing = self.fontMetrics().lineSpacing()
-        block.setMinimumHeight((min(lines, _MAX_BLOCK_LINES) + 1) * spacing + 8)
+        block.setMinimumHeight((min(lines, _MIN_BLOCK_LINES) + 1) * spacing + 8)
         block.setMaximumHeight((lines + 1) * spacing + 8)
         self._layout.addWidget(block, 1)
         block.show()
