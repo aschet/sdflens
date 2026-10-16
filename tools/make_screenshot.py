@@ -14,17 +14,19 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QCoreApplication, QEventLoop, QSettings, QTimer
+from PySide6.QtCore import QCoreApplication, QEventLoop, QSettings, Qt, QTimer
 from PySide6.QtGui import QSurfaceFormat
 from PySide6.QtWidgets import QApplication
 
 from sdflens.mainwindow import MainWindow
+from sdflens.theme import apply_theme
 
 ROOT = Path(__file__).parent.parent
 SAMPLE = ROOT / "samples" / "microlens-array.sdf"
 OUTPUT = ROOT / "docs" / "screenshot.png"
 SIZE = (1280, 800)
 COLORMAP = "Viridis"
+Z_FACTOR = 15.0  # files open at true scale, which shows the lenses too flat
 
 
 def settle(loop: QEventLoop, milliseconds: int = 500) -> None:
@@ -43,7 +45,9 @@ def main() -> int:
     surface_format.setSamples(4)
     QSurfaceFormat.setDefaultFormat(surface_format)
 
-    QApplication(sys.argv[:1])  # must exist before any widget
+    app = QApplication(sys.argv[:1])  # must exist before any widget
+    app.styleHints().setColorScheme(Qt.ColorScheme.Light)
+    apply_theme(app)
     QCoreApplication.setOrganizationName("sdflens-screenshot")
     QCoreApplication.setApplicationName("sdflens-screenshot")
     settings_dir = tempfile.mkdtemp()
@@ -58,7 +62,7 @@ def main() -> int:
     window._loader.loaded.connect(lambda *_: loop.quit())
     window.load_file(str(SAMPLE))
     loop.exec()
-    window._z_bar._auto.trigger()  # files open at true scale, which shows the lenses too flat
+    window._z_bar.set_factor(Z_FACTOR)
     window._zoom_in_action.trigger()
     settle(loop)  # let the GL view draw the loaded surface
     window.statusBar().clearMessage()
