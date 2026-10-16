@@ -941,12 +941,17 @@ def test_copy_metadata_is_what_the_panel_shows(tmp_path: Path) -> None:
     window._copy_metadata()
     text = QGuiApplication.clipboard().text()
 
-    lines = [" ".join(line.split()) for line in text.splitlines()]
+    # Runs of white space are one space: the aligned columns, and the narrow no-break space that
+    # some systems write before PM.
+    def squeeze(line: str) -> str:
+        return " ".join(line.split())
+
+    lines = [squeeze(line) for line in text.splitlines()]
     # Every section of the panel is in the text, with each of its labels and values on one line.
     for section in window._info_panel.sections:
         assert section.title.upper() in lines
         for label, value in section.rows:
-            assert f"{label} {value}" in lines
+            assert squeeze(f"{label} {value}") in lines
     assert text.rstrip().endswith("OperatorName = Jane")
     assert window._info_panel.trailer.toPlainText().strip() == "OperatorName = Jane"
 
