@@ -875,10 +875,14 @@ def test_icon_uses_the_text_color_also_when_checked() -> None:
 
 
 def test_z_scale_icon_is_drawn_from_the_svg() -> None:
-    icon = ZScaleBar().findChild(QSvgWidget)
+    bar = ZScaleBar()  # the icon belongs to the bar and is gone with it
+    icon = bar.findChild(QSvgWidget)
 
     assert icon is not None
     assert icon.renderer().isValid()
+    assert icon.size() == bar.iconSize()
+    bar.setIconSize(bar.iconSize() * 2)
+    assert icon.size() == bar.iconSize()
 
 
 def test_z_controls_stay_in_sync() -> None:
@@ -1731,7 +1735,25 @@ def test_an_irregular_profile_is_shown_in_the_profile_view_at_its_positions(
     texts: list[str] = []
     window._profile_view.hovered.connect(texts.append)
     plot._set_hover(4)
-    assert texts[-1] == "x = 8 µm, z = 800 nm"
+    assert texts[-1] == "l = 8 µm, z = 800 nm"
+    window.close()
+
+
+def test_a_diagonal_profile_is_shown_over_its_length_from_zero(tmp_path: Path) -> None:
+    along = np.linspace(0.0, 7e-6, 8)
+    path = tmp_path / "diagonal.x3p"
+    x3pio.Profile.from_points(np.column_stack([along + 4e-4, along + 1e-4, 0.1 * along])).save(path)
+    window = MainWindow()
+    _load(window, path)
+    window._view_profile_action.trigger()
+    plot = window._profile_view._plot
+
+    assert plot.position_at(0) == 0.0  # not the coordinate of the first point
+    assert plot.position_at(7) == pytest.approx(7e-6 * np.sqrt(2.0))  # not the extent in x
+    texts: list[str] = []
+    window._profile_view.hovered.connect(texts.append)
+    plot._set_hover(7)
+    assert texts[-1].startswith("l = ")
     window.close()
 
 

@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 from .camera import Tool
+from .drag import Drag, zoom_factor
 from .icons import load_icon
 from .overview import ProfileOverview
 from .pointcloud import PointCloudModel
@@ -99,6 +100,20 @@ def connect(
     return low, high
 
 
+def length_along(points: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Return the distance of each point of a profile from the first, along the profile.
+
+    ``points`` are the ``(N, 3)`` points in the order of the profile. The distance is measured in
+    the plane of ``x`` and ``y`` and summed over the segments, so a diagonal profile has its true
+    length and a profile along an axis starts at 0.
+
+    >>> length_along(np.array([[0.0, 0.0, 1.0], [3.0, 4.0, 1.0], [6.0, 8.0, 1.0]])).tolist()
+    [0.0, 5.0, 10.0]
+    """
+    steps = np.hypot(np.diff(points[:, 0]), np.diff(points[:, 1]))
+    return np.concatenate(([0.0], np.cumsum(steps)))
+
+
 def position_envelope(
     values: NDArray[np.float64],
     positions: NDArray[np.float64],
@@ -143,12 +158,10 @@ class _Plot(QWidget):
         self._step = 1.0
         #: The positions of the points of an irregular profile, in increasing order.
         self._positions: NDArray[np.float64] | None = None
-        self._axis = "x"
         self._x0 = 0.0
         self._span = 1.0
         self._tool = Tool.PAN
-        self._drag_tool: Tool | None = None
-        self._last_pos = QPointF()
+        self._drag = Drag()
         self._hover = -1  # index of the point under the cursor
         self.setMouseTracking(True)
 
@@ -156,7 +169,6 @@ class _Plot(QWidget):
         self,
         values: NDArray[np.float64],
         step: float,
-        axis: str,
         positions: NDArray[np.float64] | None = None,
     ) -> None:
         """Show ``values`` spaced ``step`` meters apart, or at ``positions`` if they are given.
@@ -168,7 +180,7 @@ class _Plot(QWidget):
             and step == self._step
             and (positions is None) == (self._positions is None)
         )
-        self._values, self._step, self._axis, self._positions = values, step, axis, positions
+        self._values, self._step, self._positions = values, step, positions
         self._hover = -1
         if same:
             self.update()
@@ -368,7 +380,7 @@ class _Plot(QWidget):
                 py + metrics.ascent() // 2,
                 label,
             )
-        caption = f"{self._axis} [{x_symbol}]"
+        caption = f"l [{x_symbol}]"
         painter.drawText(
             plot.right() - metrics.horizontalAdvance(caption), bottom + _BOTTOM - 3, caption
         )
@@ -381,38 +393,28 @@ class _Plot(QWidget):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """Start a pan or zoom drag."""
-        button = event.button()
-        if button == Qt.MouseButton.LeftButton:
-            self._drag_tool = self._tool
-        elif button == Qt.MouseButton.MiddleButton:
-            self._drag_tool = Tool.PAN
-        elif button == Qt.MouseButton.RightButton:
-            self._drag_tool = Tool.ZOOM
-        else:
-            return
-        self._last_pos = event.position()
-        self._set_hover(-1)
+        if self._drag.press(event.button(), self._tool, event.position()):
+            self._set_hover(-1)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         """Pan or zoom while dragging, otherwise report the point under the cursor."""
         pos = event.position()
-        if self._drag_tool is None:
+        if self._drag.tool is None:
             self._set_hover(self._index_at(pos))
             return
         plot = self._plot_rect()
-        dx, dy = pos.x() - self._last_pos.x(), pos.y() - self._last_pos.y()
-        self._last_pos = pos
-        if self._drag_tool is Tool.PAN:
+        dx, dy = self._drag.move(pos)
+        if self._drag.tool is Tool.PAN:
             low, high = self._full()
             shift = dx / max(plot.width(), 1) * self._span
             self._x0 = min(max(self._x0 - shift, low), high - self._span)
             self.update()
         else:
-            self._zoom_at(math.exp(-dy * 0.01), pos.x() - plot.left())
+            self._zoom_at(zoom_factor(dy), pos.x() - plot.left())
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         """End the drag."""
-        self._drag_tool = None
+        self._drag.release()
 
     def leaveEvent(self, event: QEvent) -> None:
         """Clear the hover marker and readout."""
@@ -442,8 +444,8 @@ class ProfileView(QWidget):
         """Create an empty view."""
         super().__init__(parent)
         self._model: SurfaceModel | None = None
-        #: The positions, the heights and the axis of an irregular profile, in place of a model.
-        self._irregular: tuple[NDArray[np.float64], NDArray[np.float64], str] | None = None
+        #: The positions and the heights of an irregular profile, in place of a model.
+        self._irregular: tuple[NDArray[np.float64], NDArray[np.float64]] | None = None
         self._values: NDArray[np.float64] = np.empty(0)
         self._step = 1.0
 
@@ -493,14 +495,9 @@ class ProfileView(QWidget):
         """
         self._irregular = None
         if isinstance(model, PointCloudModel):
-            if model.profile_axis is not None:
-                column = 0 if model.profile_axis == "x" else 1
-                order = np.argsort(model.points[:, column], kind="stable")
-                self._irregular = (
-                    model.points[order, column],
-                    model.points[order, 2],
-                    model.profile_axis,
-                )
+            if model.is_profile:
+                along = model.points[np.argsort(model.points[:, 0], kind="stable")]
+                self._irregular = (length_along(along), along[:, 2])
             model = None
         self._model = model
         self._overview.set_model(model)
@@ -548,9 +545,7 @@ class ProfileView(QWidget):
 
     @property
     def _along_x(self) -> bool:
-        if self._irregular is not None:
-            return self._irregular[2] == "x"
-        return self._direction.currentIndex() == 0
+        return self._irregular is not None or self._direction.currentIndex() == 0
 
     def _configure(self, index: int) -> None:
         """Set the selectable range for the current direction and select profile ``index``."""
@@ -582,11 +577,11 @@ class ProfileView(QWidget):
     def _show(self) -> None:
         model = self._model
         if self._irregular is not None:
-            positions, self._values, axis = self._irregular
+            positions, self._values = self._irregular
             # The mean distance between the points stands for the step.
             self._step = float(positions[-1] - positions[0]) / max(len(positions) - 1, 1) or 1.0
             self._save.setEnabled(False)  # an irregular profile cannot be saved as a profile
-            self._plot.set_series(self._values, self._step, axis, positions)
+            self._plot.set_series(self._values, self._step, positions)
             return
         if model is None:
             self._values, self._step = np.empty(0), 1.0
@@ -596,7 +591,7 @@ class ProfileView(QWidget):
             column = np.ascontiguousarray(model.data[:, self._spin.value() - 1])
             self._values, self._step = column, model.pixel_size_y
         self._save.setEnabled(model is not None)
-        self._plot.set_series(self._values, self._step, "x" if self._along_x else "y")
+        self._plot.set_series(self._values, self._step)
 
     def _on_point_hovered(self, index: int) -> None:
         if index < 0 or (self._model is None and self._irregular is None):
@@ -606,15 +601,11 @@ class ProfileView(QWidget):
         z_text = format_length(value) if math.isfinite(value) else self.tr("not measured")
         position = format_length(self._plot.position_at(index))
         if self._irregular is not None:
-            text = (
-                self.tr("x = {position}, z = {z}")
-                if self._along_x
-                else self.tr("y = {position}, z = {z}")
-            )
+            text = self.tr("l = {position}, z = {z}")
         elif self._along_x:
-            text = self.tr("x = {position}, z = {z} (profile {number}, point {point})")
+            text = self.tr("l = {position}, z = {z} (profile {number}, point {point})")
         else:
-            text = self.tr("y = {position}, z = {z} (column {number}, point {point})")
+            text = self.tr("l = {position}, z = {z} (column {number}, point {point})")
         self.hovered.emit(
             text.format(position=position, z=z_text, number=self._spin.value(), point=index + 1)
         )

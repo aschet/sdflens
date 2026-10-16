@@ -28,7 +28,6 @@ from .convert import (
     ProblemKind,
     addable_z_offset,
     allowed_data_types,
-    extensions_fit,
     format_problem,
     x3p_data_types,
     x3p_to_sdf,
@@ -228,7 +227,7 @@ class SaveOptionsDialog(QDialog):
         if (
             isinstance(revision, x3pio.Revision)
             and file.extensions
-            and not extensions_fit(file, revision)
+            and not file.extensions_fit(revision)
         ):
             return self.tr("The vendor extensions cannot be saved in this version.")
         return ""
