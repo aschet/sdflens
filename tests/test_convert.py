@@ -10,7 +10,8 @@ import numpy as np
 import pytest
 import sdfio
 import x3pio
-from sdfio import DataType, SdfDialect, SdfFile, SdfFormatError
+from sdfio import DataType, SdfFile, SdfFormatError
+from sdfio import Revision as SdfRevision
 
 from helpers import make_cloud, make_placed_x3p, make_ramp, make_sdf, make_x3p
 from sdflens.convert import (
@@ -27,38 +28,38 @@ from sdflens.convert import (
 
 
 def test_allowed_data_types_follow_the_standard() -> None:
-    assert allowed_data_types(SdfDialect.ISO_1_0) == [
+    assert allowed_data_types(SdfRevision.ISO_1_0) == [
         DataType.INT16,
         DataType.INT32,
         DataType.BINARY64,
     ]
-    assert DataType.BINARY32 in allowed_data_types(SdfDialect.ISO_2_0)
-    assert DataType.INT8 in allowed_data_types(SdfDialect.BCR_1_0)
+    assert DataType.BINARY32 in allowed_data_types(SdfRevision.ISO_2_0)
+    assert DataType.INT8 in allowed_data_types(SdfRevision.BCR_1_0)
 
 
 def test_unsigned_data_types_are_only_allowed_for_bcr() -> None:
     unsigned = [DataType.UINT8, DataType.UINT16, DataType.UINT32]
 
-    assert allowed_data_types(SdfDialect.BCR_1_0)[:3] == unsigned
-    for dialect in (SdfDialect.ISO_1_0, SdfDialect.ISO_2_0):
-        assert not set(unsigned) & set(allowed_data_types(dialect))
+    assert allowed_data_types(SdfRevision.BCR_1_0)[:3] == unsigned
+    for revision in (SdfRevision.ISO_1_0, SdfRevision.ISO_2_0):
+        assert not set(unsigned) & set(allowed_data_types(revision))
 
 
 def test_conversion_keeps_the_scale_when_the_data_fits() -> None:
     sdf = make_sdf(make_ramp())
-    converted = convert_for_export(sdf, SdfDialect.ISO_1_0, DataType.INT32)
+    converted = convert_for_export(sdf, SdfRevision.ISO_1_0, DataType.INT32)
 
-    assert converted.header.dialect is SdfDialect.ISO_1_0
-    assert converted.data_type is DataType.INT32
+    assert converted.header.revision is SdfRevision.ISO_1_0
+    assert converted.header.data_type is DataType.INT32
     assert converted.header.z_scale == sdf.header.z_scale
-    assert sdf.header.dialect is SdfDialect.ISO_2_0  # the input stays untouched
+    assert sdf.header.revision is SdfRevision.ISO_2_0  # the input stays untouched
 
 
 def test_conversion_rescales_when_the_data_overflows_the_type() -> None:
     data = np.array([[0.0, 1e-6, np.nan, -1e-6]])
     sdf = make_sdf(data)
     sdf.header.z_scale = 1e-12
-    converted = convert_for_export(sdf, SdfDialect.ISO_2_0, DataType.INT8)
+    converted = convert_for_export(sdf, SdfRevision.ISO_2_0, DataType.INT8)
 
     assert converted.header.z_scale > 1e-12
     raw = converted.raw_data()
@@ -67,47 +68,47 @@ def test_conversion_rescales_when_the_data_overflows_the_type() -> None:
 
 def test_incompatible_trailer_is_reported() -> None:
     sdf = make_sdf(make_ramp())
-    sdf.header.dialect = SdfDialect.BCR_1_0
+    sdf.header.revision = SdfRevision.BCR_1_0
     sdf.trailer = "free text, not tagged"
 
     with pytest.raises(SdfFormatError):
-        convert_for_export(sdf, SdfDialect.ISO_2_0, DataType.BINARY64)
+        convert_for_export(sdf, SdfRevision.ISO_2_0, DataType.BINARY64)
 
 
-@pytest.mark.parametrize("dialect", list(SdfDialect))
+@pytest.mark.parametrize("revision", list(SdfRevision))
 @pytest.mark.parametrize("binary", [True, False])
-def test_saved_files_round_trip(dialect: SdfDialect, binary: bool, tmp_path: Path) -> None:
+def test_saved_files_round_trip(revision: SdfRevision, binary: bool, tmp_path: Path) -> None:
     path = tmp_path / "out.sdf"
     file_format = sdfio.FileFormat.BINARY if binary else sdfio.FileFormat.ASCII
-    convert_for_export(make_sdf(make_ramp()), dialect, DataType.INT32).save(
+    convert_for_export(make_sdf(make_ramp()), revision, DataType.INT32).save(
         path, format=file_format
     )
     loaded = sdfio.read(path)
 
-    assert loaded.header.dialect is dialect
-    assert loaded.header.binary is binary
-    assert loaded.data_type is DataType.INT32
+    assert loaded.header.revision is revision
+    assert (loaded.header.format is sdfio.FileFormat.BINARY) is binary
+    assert loaded.header.data_type is DataType.INT32
     assert np.array_equal(np.isnan(loaded.data), np.isnan(make_ramp()))
     np.testing.assert_allclose(loaded.data, make_ramp(), atol=1e-9, equal_nan=True)
 
 
-@pytest.mark.parametrize("dialect", list(SdfDialect))
-def test_format_problem_matches_what_sdfio_can_write(dialect: SdfDialect) -> None:
-    limit = 2**32 - 1 if dialect is SdfDialect.ISO_2_0 else 2**16 - 1
+@pytest.mark.parametrize("revision", list(SdfRevision))
+def test_format_problem_matches_what_sdfio_can_write(revision: SdfRevision) -> None:
+    limit = 2**32 - 1 if revision is SdfRevision.ISO_2_0 else 2**16 - 1
     for count in (limit, limit + 1):
         sdf = make_sdf(np.zeros((1, 3)))
-        sdf.header.num_points = count  # only the limit is checked, not the data shape
-        problem = format_problem(sdf, dialect, sdfio.FileFormat.BINARY)
+        sdf.data = np.broadcast_to(0.0, (1, count))  # a view, so that no memory is needed
+        problem = format_problem(sdf, revision, sdfio.FileFormat.BINARY)
         assert (problem is None) == (count <= limit)
-        assert format_problem(sdf, dialect, sdfio.FileFormat.ASCII) is None
+        assert format_problem(sdf, revision, sdfio.FileFormat.ASCII) is None
 
 
 def test_format_problem_reports_binary_limit_by_actual_write(tmp_path: Path) -> None:
     data = np.zeros((1, 2**16))
-    for dialect, fits in ((SdfDialect.ISO_1_0, False), (SdfDialect.ISO_2_0, True)):
+    for revision, fits in ((SdfRevision.ISO_1_0, False), (SdfRevision.ISO_2_0, True)):
         sdf = make_sdf(data)
-        sdf.header.dialect = dialect
-        assert (format_problem(sdf, dialect, sdfio.FileFormat.BINARY) is None) is fits
+        sdf.header.revision = revision
+        assert (format_problem(sdf, revision, sdfio.FileFormat.BINARY) is None) is fits
         if fits:
             sdf.save(tmp_path / "ok.sdf", format=sdfio.FileFormat.BINARY)
         else:
@@ -120,13 +121,13 @@ def test_format_problem_reports_binary_limit_by_actual_write(tmp_path: Path) -> 
 def test_unsigned_bcr_files_round_trip(data_type: DataType, binary: bool, tmp_path: Path) -> None:
     path = tmp_path / "out.sdf"
     file_format = sdfio.FileFormat.BINARY if binary else sdfio.FileFormat.ASCII
-    convert_for_export(make_sdf(make_ramp()), SdfDialect.BCR_1_0, data_type).save(
+    convert_for_export(make_sdf(make_ramp()), SdfRevision.BCR_1_0, data_type).save(
         path, format=file_format
     )
     loaded = sdfio.read(path)
 
-    assert loaded.header.dialect is SdfDialect.BCR_1_0
-    assert loaded.data_type is data_type
+    assert loaded.header.revision is SdfRevision.BCR_1_0
+    assert loaded.header.data_type is data_type
     assert np.array_equal(np.isnan(loaded.data), np.isnan(make_ramp()))
     np.testing.assert_allclose(loaded.data, make_ramp(), atol=1e-9, equal_nan=True)
 
@@ -169,7 +170,7 @@ def test_only_a_grid_of_heights_converts_to_sdf() -> None:
     with pytest.raises(SdfFormatError):
         x3p_to_sdf(cloud)
     with pytest.raises(SdfFormatError):
-        convert_file(cloud, SdfDialect.ISO_2_0, DataType.BINARY64)
+        convert_file(cloud, SdfRevision.ISO_2_0, DataType.BINARY64)
 
 
 def test_the_chosen_layer_of_an_x3p_is_saved_as_sdf() -> None:
@@ -178,7 +179,7 @@ def test_the_chosen_layer_of_an_x3p_is_saved_as_sdf() -> None:
 
     np.testing.assert_allclose(x3p_to_sdf(x3p).data, make_ramp(), equal_nan=True)  # the first
     np.testing.assert_allclose(x3p_to_sdf(x3p, 1).data, make_ramp() + 1.0, equal_nan=True)
-    converted = convert_file(x3p, SdfDialect.ISO_2_0, DataType.BINARY64, 1)
+    converted = convert_file(x3p, SdfRevision.ISO_2_0, DataType.BINARY64, 1)
     assert isinstance(converted, SdfFile)
     np.testing.assert_allclose(converted.data, make_ramp() + 1.0, equal_nan=True)
 
@@ -222,17 +223,17 @@ def test_an_x3p_keeps_all_its_layers_when_it_is_converted() -> None:
 
 
 @pytest.mark.parametrize("storage", list(x3pio.DataStorage))
-@pytest.mark.parametrize("dialect", list(x3pio.Revision))
+@pytest.mark.parametrize("revision", list(x3pio.Revision))
 def test_conversion_to_x3p_round_trips(
-    dialect: x3pio.Revision, storage: x3pio.DataStorage, tmp_path: Path
+    revision: x3pio.Revision, storage: x3pio.DataStorage, tmp_path: Path
 ) -> None:
     path = tmp_path / "out.x3p"
-    converted = convert_file(make_sdf(make_ramp()), dialect, x3pio.DataType.INT32)
+    converted = convert_file(make_sdf(make_ramp()), revision, x3pio.DataType.INT32)
     assert isinstance(converted, x3pio.X3pFile)
     converted.save(path, storage=storage)
     loaded = x3pio.read(path)
 
-    assert loaded.revision is dialect
+    assert loaded.revision is revision
     assert loaded.header.z.data_type is x3pio.DataType.INT32
     np.testing.assert_allclose(loaded.layers[0].z, make_ramp(), atol=1e-9, equal_nan=True)
 
@@ -261,7 +262,7 @@ def test_vendor_extensions_are_kept_when_they_fit_and_dropped_when_not() -> None
 
 def test_a_data_type_of_the_other_format_is_rejected() -> None:
     with pytest.raises(TypeError):
-        convert_file(make_sdf(make_ramp()), SdfDialect.ISO_2_0, x3pio.DataType.INT16)
+        convert_file(make_sdf(make_ramp()), SdfRevision.ISO_2_0, x3pio.DataType.INT16)
 
 
 def test_the_z_offset_is_lost_unless_it_is_added_to_the_heights_of_an_sdf() -> None:
@@ -277,7 +278,7 @@ def test_the_z_offset_is_lost_unless_it_is_added_to_the_heights_of_an_sdf() -> N
 def test_the_z_offset_is_added_to_the_layer_that_is_saved() -> None:
     x3p = make_placed_x3p(make_ramp(), 10.0 * make_ramp())
 
-    converted = convert_file(x3p, SdfDialect.ISO_2_0, DataType.BINARY64, 1, apply_z_offset=True)
+    converted = convert_file(x3p, SdfRevision.ISO_2_0, DataType.BINARY64, 1, apply_z_offset=True)
     assert isinstance(converted, SdfFile)
     np.testing.assert_allclose(converted.data, 10.0 * make_ramp() + 0.5, equal_nan=True)
 
@@ -316,9 +317,9 @@ def test_the_profile_of_an_sdf_file_has_one_row_and_keeps_the_header_and_the_tra
     profile = profile_file(sdf, row, sdf.header.x_scale)
 
     assert isinstance(profile, SdfFile)
-    assert (profile.header.num_profiles, profile.header.num_points) == (1, row.size)
+    assert profile.data.shape == (1, row.size)
     assert profile.header.manufacturer_id == sdf.header.manufacturer_id
-    assert profile.header.dialect == sdf.header.dialect
+    assert profile.header.revision == sdf.header.revision
     assert profile.trailer == sdf.trailer
     np.testing.assert_allclose(profile.data, row.reshape(1, -1), equal_nan=True)
     assert sdf.data.shape == make_ramp().shape  # the file that is shown is not changed
@@ -354,7 +355,7 @@ def test_a_profile_is_saved_like_a_file_in_every_format() -> None:
     for source in (make_sdf(make_ramp()), make_x3p()):
         profile = profile_file(source, row, 1e-6)
 
-        as_sdf = convert_file(profile, SdfDialect.ISO_2_0, DataType.BINARY64)
+        as_sdf = convert_file(profile, SdfRevision.ISO_2_0, DataType.BINARY64)
         as_x3p = convert_file(profile, x3pio.Revision.ISO25178_72_2017_DAM1, x3pio.DataType.FLOAT64)
 
         assert isinstance(as_sdf, SdfFile)

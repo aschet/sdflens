@@ -57,7 +57,7 @@ def build() -> np.ndarray:
 def main() -> None:
     """Write the sample file with fixed dates, so that regenerating it changes nothing."""
     date = datetime(2026, 9, 30, tzinfo=UTC)
-    metadata = sdfio.SdfMetadata(
+    metadata = sdfio.Metadata(
         manufacturer_id="sdflens",
         data_type=sdfio.DataType.INT32,
         create_date=date,

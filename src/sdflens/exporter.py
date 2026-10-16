@@ -117,7 +117,7 @@ class Exporter(QObject):
         self.write_export(
             file,
             path,
-            dialog.dialect,
+            dialog.revision,
             dialog.data_type,
             dialog.file_format,
             layer,
@@ -129,7 +129,7 @@ class Exporter(QObject):
         self,
         file: SurfaceFile,
         path: str,
-        dialect: sdfio.SdfDialect | x3pio.Revision,
+        revision: sdfio.Revision | x3pio.Revision,
         data_type: sdfio.DataType | x3pio.DataType,
         file_format: sdfio.FileFormat | x3pio.DataStorage,
         layer: int = 0,
@@ -145,7 +145,7 @@ class Exporter(QObject):
         QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
         error: Exception | None = None
         try:
-            converted = convert_file(file, dialect, data_type, layer, single_layer, apply_z_offset)
+            converted = convert_file(file, revision, data_type, layer, single_layer, apply_z_offset)
             if isinstance(converted, sdfio.SdfFile):
                 converted.save(path, format=cast(sdfio.FileFormat, file_format))
             else:

@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import x3pio
 from numpy.typing import NDArray
-from sdfio import SdfFile, SdfHeader
+from sdfio import Header, SdfFile
 from x3pio import Surface
 
 ROWS, COLS = 4, 5
@@ -24,9 +24,7 @@ def make_ramp() -> NDArray[np.float64]:
 
 def make_sdf(data: NDArray[np.float64], x_scale: float = 1e-6, y_scale: float = 2e-6) -> SdfFile:
     """Build an in-memory SDF file around ``data``."""
-    header = SdfHeader(
-        num_points=data.shape[1],
-        num_profiles=data.shape[0],
+    header = Header(
         x_scale=x_scale,
         y_scale=y_scale,
         z_scale=1e-9,
