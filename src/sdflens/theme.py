@@ -229,12 +229,6 @@ QStatusBar {{
 QStatusBar::item {{
     border: 0;
 }}
-QDockWidget::title {{
-    background: {t.surface};
-    border-bottom: 1px solid {t.border};
-    padding: 8px 12px;
-    font-weight: 600;
-}}
 QScrollArea, QScrollArea > QWidget > QWidget {{
     background: {t.surface};
     border: 0;
