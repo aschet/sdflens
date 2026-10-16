@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QPlainTextEdit,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -36,11 +37,11 @@ __all__ = [
     "trailer_text",
 ]
 
-#: Width in characters that fits the longest values, such as the revision of an x3p file.
-_MIN_COLUMNS = 48
+#: Narrowest width in characters; longer values wrap.
+_MIN_COLUMNS = 28
 
-#: The trailer and the list of extensions show at most this many lines before they scroll.
-_MAX_BLOCK_LINES = 10
+#: The trailer and the list of extensions may shrink to this many lines to fit the panel.
+_MIN_BLOCK_LINES = 2
 
 
 def extension_names(file: SurfaceFile) -> list[str]:
@@ -147,9 +148,11 @@ class InfoPanel(QScrollArea):
         for section in self.sections:
             self._add_heading(section.title)
             if section.text:
-                self._layout.addWidget(self._selectable(section.text))
+                self._layout.addWidget(self._selectable(section.text), 0, Qt.AlignmentFlag.AlignTop)
             else:
-                self._layout.addWidget(self._rows(section.rows, label_width))
+                self._layout.addWidget(
+                    self._rows(section.rows, label_width), 0, Qt.AlignmentFlag.AlignTop
+                )
 
         text = trailer_text(file).strip() if isinstance(file, SdfFile) else ""
         self.trailer.setPlainText(text)
@@ -164,7 +167,8 @@ class InfoPanel(QScrollArea):
         if names:
             self._add_heading("Vendor extensions")
             self._show_block(self.extensions, len(names))
-        self._layout.addStretch(1)
+        if not text and not names:
+            self._layout.addStretch(1)
 
     def _clear(self) -> None:
         """Remove what is shown, keeping the trailer and the extensions for the next file."""
@@ -204,14 +208,16 @@ class InfoPanel(QScrollArea):
             name = self._selectable(_translated(label))
             name.setWordWrap(False)
             layout.addWidget(name, index, 0, Qt.AlignmentFlag.AlignTop)
-            layout.addWidget(self._selectable(value), index, 1)
+            layout.addWidget(self._selectable(value), index, 1, Qt.AlignmentFlag.AlignTop)
         return grid
 
     def _show_block(self, block: QWidget, lines: int) -> None:
-        """Show the trailer or the extensions with room for their lines, at most ten of them."""
-        shown = min(lines, _MAX_BLOCK_LINES)
-        block.setFixedHeight((shown + 1) * self.fontMetrics().lineSpacing() + 8)
-        self._layout.addWidget(block)
+        """Show the trailer or the extensions: the height the panel has left."""
+        spacing = self.fontMetrics().lineSpacing()
+        block.setMinimumHeight((min(lines, _MIN_BLOCK_LINES) + 1) * spacing + 8)
+        # Its own size hint is ignored: the panel gives it what the sections leave free.
+        block.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
+        self._layout.addWidget(block, 1)
         block.show()
 
     def extension_menu(self, item: QListWidgetItem) -> QMenu:

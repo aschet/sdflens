@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QApplication
 from . import __version__
 from .icons import app_icon
 from .mainwindow import MainWindow
+from .theme import apply_theme
 
 __all__ = ["main"]
 
@@ -59,6 +60,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     app.setApplicationDisplayName("sdflens")
     app.setApplicationVersion(__version__)
     app.setWindowIcon(app_icon())
+    apply_theme(app)
 
     window = MainWindow()
     window.show()

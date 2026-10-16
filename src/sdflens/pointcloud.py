@@ -12,14 +12,10 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .surface import (
-    AUTO_HEIGHT_FRACTION,
-    AUTO_Z_FACTOR_MAX,
-    ROBUST_PERCENTILES,
     NoMeasuredPointsError,
     ValueRange,
     data_range,
 )
-from .zscale import clamp_z_factor
 
 __all__ = ["PointCloudModel"]
 
@@ -121,11 +117,3 @@ class PointCloudModel:
     def color_offset(self) -> float:
         """Color fraction of a vertex at normalized z = 0."""
         return (self.z_center - self.value_range.lo) / (self.value_range.hi - self.value_range.lo)
-
-    def auto_z_factor(self) -> float:
-        """Return the exaggeration making the typical height span a part of the extent."""
-        low, high = np.percentile(self.points[:, 2], ROBUST_PERCENTILES)
-        fraction = (high - low) / self.scale
-        if fraction <= 0:
-            return 1.0
-        return clamp_z_factor(min(AUTO_HEIGHT_FRACTION / fraction, AUTO_Z_FACTOR_MAX))

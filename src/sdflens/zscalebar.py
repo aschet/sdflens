@@ -17,8 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .icons import themed_svg
-from .surface import AUTO_HEIGHT_FRACTION, AUTO_Z_FACTOR_MAX
+from .icons import load_icon, themed_svg
 from .zscale import (
     SLIDER_MAX,
     Z_FACTOR_MAX,
@@ -35,12 +34,10 @@ class ZScaleBar(QToolBar):
     """Slider, spin box and presets for the height exaggeration.
 
     ``factor_changed(factor)`` is emitted whenever the factor changes, by the user or by
-    :meth:`set_factor`. ``auto_requested()`` is emitted by the *Auto* button; only the owner
-    knows the surface, so it answers with :meth:`set_factor`.
+    :meth:`set_factor`.
     """
 
     factor_changed = Signal(float)
-    auto_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Create the toolbar at a factor of 1."""
@@ -66,19 +63,11 @@ class ZScaleBar(QToolBar):
         self._spin.setSuffix(" \u00d7")
         self._spin.setStepType(QDoubleSpinBox.StepType.AdaptiveDecimalStepType)
         self._spin.valueChanged.connect(self._on_user)
-        self._auto = QAction(self.tr("Auto"), self)
-        self._auto.setToolTip(
-            self.tr(
-                "Fit the typical height to {percent}% of the extent, at most {limit}\u00d7"
-            ).format(percent=round(AUTO_HEIGHT_FRACTION * 100), limit=round(AUTO_Z_FACTOR_MAX))
-        )
-        self._auto.triggered.connect(self.auto_requested)
-        true_scale = QAction("1\u00d7", self)
-        true_scale.setToolTip(self.tr("True metric scale"))
+        true_scale = QAction(load_icon("reset"), self.tr("Reset"), self)
+        true_scale.setToolTip(self.tr("Reset height scale"))
         true_scale.triggered.connect(lambda: self.set_factor(1.0))
         for widget in (self._icon, self._slider, self._spin):
             self.addWidget(widget)
-        self.addAction(self._auto)
         self.addAction(true_scale)
 
     def changeEvent(self, event: QEvent) -> None:
@@ -100,10 +89,6 @@ class ZScaleBar(QToolBar):
         self._spin.setValue(self._factor)
         self._updating = False
         self.factor_changed.emit(self._factor)
-
-    def set_auto_available(self, available: bool) -> None:
-        """Enable the *Auto* button, which needs a loaded surface."""
-        self._auto.setEnabled(available)
 
     def _on_slider(self, position: int) -> None:
         self._on_user(slider_to_factor(position))

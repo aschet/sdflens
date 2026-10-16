@@ -184,7 +184,7 @@ class Exporter(QObject):
         """Save the information of ``file`` as the panel shows it, as a text file."""
         path = self._ask_save_path(
             self.tr("Export information"),
-            f"{Path(source).stem}.txt" if source else "information.txt",
+            f"{Path(source).stem}-info.txt" if source else "info.txt",
             self.tr("Text files (*.txt);;All files (*)"),
         )
         if not path:

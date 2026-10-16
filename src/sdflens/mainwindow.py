@@ -348,8 +348,9 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(surface)
 
         info = QWidget(self)
+        info.setObjectName("infoBody")
         info_layout = QVBoxLayout(info)
-        info_layout.setContentsMargins(0, 0, 0, 0)
+        info_layout.setContentsMargins(0, 0, 0, 8)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         for action in (self._export_action, self._copy_metadata_action):
@@ -362,7 +363,15 @@ class MainWindow(QMainWindow):
         self._info_dock = QDockWidget(self.tr("Information"), self)
         self._info_dock.setObjectName("infoDock")
         self._info_dock.setWidget(info)
+        self._info_dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        )
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._info_dock)
+        self.resizeDocks(
+            [self._info_dock],
+            [self.fontMetrics().averageCharWidth() * 44],
+            Qt.Orientation.Horizontal,
+        )
         self._info_toggle_action = self._info_dock.toggleViewAction()
         self._info_toggle_action.setText(self.tr("In&formation"))
         self._info_toggle_action.setShortcut(QKeySequence(self.tr("Ctrl+I", "shortcut")))
@@ -442,7 +451,6 @@ class MainWindow(QMainWindow):
 
         self._z_bar = ZScaleBar(self)
         self._z_bar.factor_changed.connect(self._surface_view.set_z_factor)
-        self._z_bar.auto_requested.connect(self._on_z_auto)
         self.addToolBar(self._z_bar)
 
     def _current_mode(self) -> str:
@@ -530,10 +538,6 @@ class MainWindow(QMainWindow):
             view.set_lut(lut)
         self._colorbar.set_lut(lut)
 
-    def _on_z_auto(self) -> None:
-        if self._model is not None:
-            self._z_bar.set_factor(self._model.auto_z_factor())
-
     def _update_actions(self) -> None:
         loaded = self._file is not None
         idle = not self._loader.busy
@@ -546,7 +550,6 @@ class MainWindow(QMainWindow):
             self._zoom_out_action,
         ):
             action.setEnabled(loaded)
-        self._z_bar.set_auto_available(loaded)
         self._save_as_action.setEnabled(loaded)
         self._export_action.setEnabled(loaded)
         self._copy_metadata_action.setEnabled(loaded)
@@ -661,7 +664,7 @@ class MainWindow(QMainWindow):
         grid = model if isinstance(model, SurfaceModel) else None
         self._heatmap_view.set_model(grid)
         self._profile_view.set_model(model)
-        self._colorbar.set_range(model.value_range, model.invalid_count > 0)
+        self._colorbar.set_range(model.value_range)
         self._info_panel.set_file(file)
         self._stats_label.setText(self._stats_text(model, mesh))
         self._z_bar.set_factor(1.0)
@@ -730,7 +733,7 @@ class MainWindow(QMainWindow):
         grid = model if isinstance(model, SurfaceModel) else None
         self._heatmap_view.set_model(grid, keep_view=True)
         self._profile_view.set_model(model, keep_selection=True)
-        self._colorbar.set_range(model.value_range, model.invalid_count > 0)
+        self._colorbar.set_range(model.value_range)
         self._stats_label.setText(self._stats_text(model, mesh))
         self._update_actions()
         wanted, self._pending_layer = self._pending_layer, None
