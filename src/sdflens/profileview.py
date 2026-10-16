@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 from .camera import Tool
+from .drag import Drag, zoom_factor
 from .icons import load_icon
 from .overview import ProfileOverview
 from .pointcloud import PointCloudModel
@@ -160,8 +161,7 @@ class _Plot(QWidget):
         self._x0 = 0.0
         self._span = 1.0
         self._tool = Tool.PAN
-        self._drag_tool: Tool | None = None
-        self._last_pos = QPointF()
+        self._drag = Drag()
         self._hover = -1  # index of the point under the cursor
         self.setMouseTracking(True)
 
@@ -393,38 +393,28 @@ class _Plot(QWidget):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """Start a pan or zoom drag."""
-        button = event.button()
-        if button == Qt.MouseButton.LeftButton:
-            self._drag_tool = self._tool
-        elif button == Qt.MouseButton.MiddleButton:
-            self._drag_tool = Tool.PAN
-        elif button == Qt.MouseButton.RightButton:
-            self._drag_tool = Tool.ZOOM
-        else:
-            return
-        self._last_pos = event.position()
-        self._set_hover(-1)
+        if self._drag.press(event.button(), self._tool, event.position()):
+            self._set_hover(-1)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         """Pan or zoom while dragging, otherwise report the point under the cursor."""
         pos = event.position()
-        if self._drag_tool is None:
+        if self._drag.tool is None:
             self._set_hover(self._index_at(pos))
             return
         plot = self._plot_rect()
-        dx, dy = pos.x() - self._last_pos.x(), pos.y() - self._last_pos.y()
-        self._last_pos = pos
-        if self._drag_tool is Tool.PAN:
+        dx, dy = self._drag.move(pos)
+        if self._drag.tool is Tool.PAN:
             low, high = self._full()
             shift = dx / max(plot.width(), 1) * self._span
             self._x0 = min(max(self._x0 - shift, low), high - self._span)
             self.update()
         else:
-            self._zoom_at(math.exp(-dy * 0.01), pos.x() - plot.left())
+            self._zoom_at(zoom_factor(dy), pos.x() - plot.left())
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         """End the drag."""
-        self._drag_tool = None
+        self._drag.release()
 
     def leaveEvent(self, event: QEvent) -> None:
         """Clear the hover marker and readout."""

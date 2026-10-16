@@ -35,6 +35,7 @@ from PySide6.QtWidgets import QWidget
 from shiboken6 import VoidPtr
 
 from .camera import Camera, Tool
+from .drag import Drag, zoom_factor
 from .mesh import SurfaceMesh
 from .pick import pick, project
 from .surface import Model3D
@@ -151,8 +152,7 @@ class SurfaceView(QOpenGLWidget):
         self._render_mode = RenderMode.SURFACE
         self._draw_mode = _GL_TRIANGLES
         self._draw_count = 0
-        self._last_pos = QPointF()
-        self._drag_tool: Tool | None = None
+        self._drag = Drag()
         self._press_pos: QPointF | None = None
         self._picked: int | None = None
         self._gl: QOpenGLFunctions_3_3_Core | None = None
@@ -286,41 +286,31 @@ class SurfaceView(QOpenGLWidget):
                 self._camera.set_view(*_AXIS_VIEWS[axis])
                 self.update()
                 return
-            self._drag_tool = self._tool
             self._press_pos = event.position()
-        elif button == Qt.MouseButton.MiddleButton:
-            self._drag_tool = Tool.PAN
-        elif button == Qt.MouseButton.RightButton:
-            self._drag_tool = Tool.ZOOM
-        else:
-            return
-        self._last_pos = event.position()
+        self._drag.press(button, self._tool, event.position())
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         """Apply the active drag tool, or show a hand over a clickable axis."""
-        if self._drag_tool is None:
+        if self._drag.tool is None:
             if self._axis_at(event.position()) is None:
                 self.unsetCursor()
             else:
                 self.setCursor(Qt.CursorShape.PointingHandCursor)
             return
-        pos = event.position()
-        dx = pos.x() - self._last_pos.x()
-        dy = pos.y() - self._last_pos.y()
-        self._last_pos = pos
-        if self._drag_tool is Tool.ROTATE:
+        dx, dy = self._drag.move(event.position())
+        if self._drag.tool is Tool.ROTATE:
             self._camera.rotate(dx, dy)
-        elif self._drag_tool is Tool.PAN:
+        elif self._drag.tool is Tool.PAN:
             self._camera.pan(dx, dy, self.height())
         else:
-            self._camera.zoom(math.exp(-dy * 0.01))
+            self._camera.zoom(zoom_factor(dy))
         self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         """End the drag; a left press that did not move is a click that picks a point."""
         press = self._press_pos
         self._press_pos = None
-        self._drag_tool = None
+        self._drag.release()
         if press is not None and event.button() == Qt.MouseButton.LeftButton:
             pos = event.position()
             if math.hypot(pos.x() - press.x(), pos.y() - press.y()) <= _CLICK_DISTANCE:

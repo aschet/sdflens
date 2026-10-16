@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from PySide6.QtCore import QPointF, Qt
 
-from sdflens.camera import Camera
+from sdflens.camera import Camera, Tool
 from sdflens.colormap import apply_colormap, build_lut, colormap_names
+from sdflens.drag import Drag, zoom_factor
 from sdflens.units import format_length, nice_ticks, unit_for
 from sdflens.view2d import Bounds, ViewTransform2D
 from sdflens.zscale import (
@@ -136,3 +138,29 @@ def test_view_transform_pan_moves_content_with_the_cursor() -> None:
 
     assert after[0] - before[0] == pytest.approx(10.0)
     assert after[1] - before[1] == pytest.approx(-5.0)
+
+
+def test_a_drag_uses_the_tool_of_the_pressed_button() -> None:
+    drag = Drag()
+    assert drag.tool is None
+    assert drag.press(Qt.MouseButton.LeftButton, Tool.ROTATE, QPointF(1.0, 2.0))
+    assert drag.tool is Tool.ROTATE
+    assert drag.press(Qt.MouseButton.MiddleButton, Tool.ROTATE, QPointF())
+    assert drag.tool is Tool.PAN
+    assert drag.press(Qt.MouseButton.RightButton, Tool.ROTATE, QPointF())
+    assert drag.tool is Tool.ZOOM
+
+    drag.release()
+    assert drag.tool is None
+    assert not drag.press(Qt.MouseButton.BackButton, Tool.ROTATE, QPointF())
+    assert drag.tool is None
+
+
+def test_a_drag_reports_the_movement_since_the_last_event() -> None:
+    drag = Drag()
+    drag.press(Qt.MouseButton.LeftButton, Tool.PAN, QPointF(10.0, 20.0))
+
+    assert drag.move(QPointF(13.0, 18.0)) == (3.0, -2.0)
+    assert drag.move(QPointF(13.0, 28.0)) == (0.0, 10.0)
+    assert zoom_factor(-50.0) > 1.0 > zoom_factor(50.0)
+    assert zoom_factor(10.0) * zoom_factor(-10.0) == pytest.approx(1.0)

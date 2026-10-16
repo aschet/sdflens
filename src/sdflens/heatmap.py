@@ -10,7 +10,7 @@ import math
 
 import numpy as np
 from numpy.typing import NDArray
-from PySide6.QtCore import QEvent, QPointF, QRect, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QPointF, QRect, QRectF, Signal
 from PySide6.QtGui import (
     QImage,
     QMouseEvent,
@@ -23,6 +23,7 @@ from PySide6.QtWidgets import QWidget
 
 from .camera import Tool
 from .colormap import apply_colormap
+from .drag import Drag, zoom_factor
 from .surface import SurfaceModel
 from .units import format_length, format_tick, nice_ticks, unit_for
 from .view2d import Bounds, ViewTransform2D
@@ -80,8 +81,7 @@ class HeatmapView(QWidget):
         self._transform = ViewTransform2D()
         self._fitted = True
         self._tool = Tool.ROTATE
-        self._drag_tool: Tool | None = None
-        self._last_pos = QPointF()
+        self._drag = Drag()
         self.setMouseTracking(True)
 
     def set_model(self, model: SurfaceModel | None, *, keep_view: bool = False) -> None:
@@ -161,41 +161,31 @@ class HeatmapView(QWidget):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """Start a pan or zoom drag."""
-        button = event.button()
-        if button == Qt.MouseButton.LeftButton:
-            self._drag_tool = Tool.ZOOM if self._tool is Tool.ZOOM else Tool.PAN
-        elif button == Qt.MouseButton.MiddleButton:
-            self._drag_tool = Tool.PAN
-        elif button == Qt.MouseButton.RightButton:
-            self._drag_tool = Tool.ZOOM
-        else:
-            return
-        self._last_pos = event.position()
+        left = Tool.ZOOM if self._tool is Tool.ZOOM else Tool.PAN
+        self._drag.press(event.button(), left, event.position())
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         """Pan/zoom while dragging, otherwise report the value under the cursor."""
         pos = event.position()
-        if self._drag_tool is None:
+        if self._drag.tool is None:
             self.hovered.emit(self._describe(pos))
             return
-        dx = pos.x() - self._last_pos.x()
-        dy = pos.y() - self._last_pos.y()
-        self._last_pos = pos
+        dx, dy = self._drag.move(pos)
         self._fitted = False
-        if self._drag_tool is Tool.PAN:
+        if self._drag.tool is Tool.PAN:
             self._transform.pan(dx, dy)
         else:
             origin = self._plot_rect().topLeft()
             self._transform.zoom_at(
-                math.exp(-dy * 0.01),
-                self._last_pos.x() - origin.x(),
-                self._last_pos.y() - origin.y(),
+                zoom_factor(dy),
+                pos.x() - origin.x(),
+                pos.y() - origin.y(),
             )
         self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         """End the drag."""
-        self._drag_tool = None
+        self._drag.release()
 
     def leaveEvent(self, event: QEvent) -> None:
         """Clear the hover readout."""
