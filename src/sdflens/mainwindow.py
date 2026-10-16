@@ -363,6 +363,9 @@ class MainWindow(QMainWindow):
         self._info_dock = QDockWidget(self.tr("Information"), self)
         self._info_dock.setObjectName("infoDock")
         self._info_dock.setWidget(info)
+        self._info_dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        )
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._info_dock)
         self.resizeDocks(
             [self._info_dock],
