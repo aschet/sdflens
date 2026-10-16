@@ -9,9 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import cast
 
-import x3pio
-from PySide6.QtCore import QDateTime, QLocale, QPoint, Qt, Signal
-from PySide6.QtGui import QPalette
+from PySide6.QtCore import QCoreApplication, QDateTime, QLocale, QPoint, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
@@ -35,7 +33,6 @@ __all__ = [
     "InfoPanel",
     "extension_names",
     "format_metadata",
-    "metadata_rows",
     "trailer_text",
 ]
 
@@ -44,86 +41,6 @@ _MIN_COLUMNS = 48
 
 #: The trailer and the list of extensions show at most this many lines before they scroll.
 _MAX_BLOCK_LINES = 10
-
-
-def metadata_rows(file: SurfaceFile) -> list[tuple[str, str]]:
-    """Return the header fields as ``(name, value)`` rows, named as in the standard.
-
-    Lengths are in meters, like in ``sdfio info``. For an x3p file these are the fields of
-    Record 1 (``Revision``, the data layout, the axes and the rotation) and of Record 2.
-    """
-    if isinstance(file, SdfFile):
-        return _sdf_rows(file)
-    return _x3p_rows(file)
-
-
-def _sdf_rows(sdf: SdfFile) -> list[tuple[str, str]]:
-    header = sdf.header
-    return [
-        ("Version", header.magic),
-        ("ManufacID", header.manufacturer_id),
-        ("CreateDate", str(header.create_date) if header.create_date else ""),
-        ("ModDate", str(header.mod_date) if header.mod_date else ""),
-        ("NumPoints", str(sdf.data.shape[1])),
-        ("NumProfiles", str(sdf.data.shape[0])),
-        ("Xscale", f"{header.x_scale:g}"),
-        ("Yscale", f"{header.y_scale:g}"),
-        ("Zscale", f"{header.z_scale:g}"),
-        ("Zresolution", f"{header.z_resolution:g}"),
-        ("DataType", header.data_type.name.lower()),
-    ]
-
-
-def _date(value: datetime | None) -> str:
-    return value.isoformat(timespec="milliseconds") if value is not None else ""
-
-
-def _x3p_rows(x3p: x3pio.X3pFile) -> list[tuple[str, str]]:
-    header = x3p.header
-    placement = x3p.placement
-    shape = x3p.layers[0].shape
-    rows = [("Revision", x3p.revision.value), ("FeatureType", x3p.feature_type.value)]
-    if isinstance(x3p, x3pio.PointCloud):
-        rows.append(("ListDimension", str(shape[0])))
-    else:
-        num_rows, num_columns = (1, shape[0]) if isinstance(x3p, x3pio.Profile) else shape
-        rows += [
-            ("MatrixDimension.SizeX", str(num_columns)),
-            ("MatrixDimension.SizeY", str(num_rows)),
-            ("MatrixDimension.SizeZ", str(len(x3p.layers))),
-        ]
-    for index, (name, axis) in enumerate((("CX", header.x), ("CY", header.y), ("CZ", header.z))):
-        rows += [
-            (f"{name}.AxisType", axis.axis_type.name.lower()),
-            (f"{name}.DataType", axis.data_type.name.lower()),
-            (f"{name}.Increment", f"{axis.increment:g}"),
-            (f"{name}.Offset", f"{placement.offset[index]:g}"),
-        ]
-    if placement.has_rotation:
-        rotation = "; ".join(" ".join(f"{value:g}" for value in row) for row in placement.rotation)
-        rows.append(("Rotation", rotation))
-    if not x3p.revision.has_vendor_ids:
-        vendor_ids = x3p.extensions.vendor_ids
-        rows.append(("VendorSpecificID", vendor_ids[0] if vendor_ids else ""))
-    metadata = x3p.metadata
-    if metadata is not None:
-        optional = [
-            ("Creator", metadata.creator or ""),
-            ("CalibrationDate", _date(metadata.calibration_date)),
-            ("Comment", metadata.comment or ""),
-        ]
-        probing = metadata.probing_system
-        rows += [
-            ("Date", _date(metadata.date)),
-            ("Instrument.Manufacturer", metadata.instrument.manufacturer),
-            ("Instrument.Model", metadata.instrument.model),
-            ("Instrument.Serial", metadata.instrument.serial),
-            ("Instrument.Version", metadata.instrument.version),
-            ("ProbingSystem.Type", probing.type.value if probing.type else ""),
-            ("ProbingSystem.Identification", probing.identification),
-        ]
-        rows += [row for row in optional if row[1]]
-    return rows
 
 
 def extension_names(file: SurfaceFile) -> list[str]:
@@ -141,26 +58,35 @@ def trailer_text(sdf: SdfFile) -> str:
     return trailer if isinstance(trailer, str) else trailer.decode("ascii", errors="replace")
 
 
-def format_metadata(file: SurfaceFile) -> str:
-    """Return the header fields and the trailer or extensions as text.
+def _translated(text: str) -> str:
+    """Return ``text`` as the panel shows it, in the language of the system."""
+    return QCoreApplication.translate("InfoPanel", text)
 
-    The layout is that of ``sdfio info``: ``name = value`` lines. An SDF file ends with its
-    trailer, an x3p file with the list of its vendor extensions.
+
+def format_metadata(file: SurfaceFile) -> str:
+    """Return the information of ``file`` as text, as the panel shows it.
+
+    The sections are those of the panel, each with its title in capitals and its labelled values
+    below it, followed by the trailer of an SDF file or the vendor extensions of an x3p file.
     """
-    rows = metadata_rows(file)
-    width = max(len(name) for name, _ in rows)
-    lines = [f"{name:<{width}} = {value}" for name, value in rows]
-    if isinstance(file, SdfFile):
-        text = trailer_text(file)
-        if text.strip():
-            lines.append(f"{'Trailer':<{width}} =")
-            lines.extend(text.splitlines())
-    else:
-        extensions = extension_names(file)
-        if extensions:
-            lines.append(f"{'VendorExtensions':<{width}} =")
-            lines.extend(extensions)
-    return "\n".join(lines) + "\n"
+    sections = describe_file(file, _format_date)
+    width = max(
+        (len(_translated(name)) for section in sections for name, _ in section.rows), default=0
+    )
+    blocks: list[list[str]] = []
+    for section in sections:
+        lines = [_translated(section.title).upper()]
+        if section.text:
+            lines.append(section.text)
+        lines += [f"{_translated(name):<{width}}  {value}" for name, value in section.rows]
+        blocks.append(lines)
+    trailer = trailer_text(file).strip() if isinstance(file, SdfFile) else ""
+    if trailer:
+        blocks.append([_translated("Trailer").upper(), *trailer.splitlines()])
+    extensions = extension_names(file)
+    if extensions:
+        blocks.append([_translated("Vendor extensions").upper(), *extensions])
+    return "\n\n".join("\n".join(lines) for lines in blocks) + "\n"
 
 
 def _format_date(value: datetime) -> str:
@@ -212,7 +138,7 @@ class InfoPanel(QScrollArea):
         metrics = self.fontMetrics()
         label_width = max(
             (
-                metrics.horizontalAdvance(self.tr(name))
+                metrics.horizontalAdvance(_translated(name))
                 for section in self.sections
                 for name, _ in section.rows
             ),
@@ -221,7 +147,7 @@ class InfoPanel(QScrollArea):
         for section in self.sections:
             self._add_heading(section.title)
             if section.text:
-                self._layout.addWidget(self._selectable(section.text, muted=False))
+                self._layout.addWidget(self._selectable(section.text))
             else:
                 self._layout.addWidget(self._rows(section.rows, label_width))
 
@@ -250,26 +176,23 @@ class InfoPanel(QScrollArea):
                 widget.deleteLater()
 
     def _add_heading(self, title: str) -> None:
-        heading = QLabel(self.tr(title).upper(), self._content)
+        heading = QLabel(_translated(title).upper(), self._content)
         font = heading.font()
         font.setBold(True)
         font.setPointSizeF(font.pointSizeF() * 0.85)
         heading.setFont(font)
-        heading.setForegroundRole(QPalette.ColorRole.PlaceholderText)
         heading.setContentsMargins(0, 10, 0, 0)
         self._layout.addWidget(heading)
 
-    def _selectable(self, text: str, *, muted: bool) -> QLabel:
+    def _selectable(self, text: str) -> QLabel:
         """Return a label that wraps long text and lets it be selected and copied."""
         label = QLabel(text, self._content)
         label.setWordWrap(True)
         label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        if muted:
-            label.setForegroundRole(QPalette.ColorRole.PlaceholderText)
         return label
 
     def _rows(self, rows: tuple[tuple[str, str], ...], label_width: int) -> QWidget:
-        """Return the labelled values of a section: the label muted, the value beside it."""
+        """Return the labelled values of a section: each label with its value beside it."""
         grid = QWidget(self._content)
         layout = QGridLayout(grid)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -278,10 +201,10 @@ class InfoPanel(QScrollArea):
         layout.setColumnStretch(1, 1)
         layout.setColumnMinimumWidth(0, label_width)
         for index, (label, value) in enumerate(rows):
-            name = self._selectable(self.tr(label), muted=True)
+            name = self._selectable(_translated(label))
             name.setWordWrap(False)
             layout.addWidget(name, index, 0, Qt.AlignmentFlag.AlignTop)
-            layout.addWidget(self._selectable(value, muted=False), index, 1)
+            layout.addWidget(self._selectable(value), index, 1)
         return grid
 
     def _show_block(self, block: QWidget, lines: int) -> None:

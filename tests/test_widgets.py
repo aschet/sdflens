@@ -53,7 +53,7 @@ from sdflens.exporter import Exporter
 from sdflens.glwidget import RenderMode, SurfaceView, _primitives
 from sdflens.heatmap import HeatmapView, _block_size, _reduce
 from sdflens.icons import load_icon
-from sdflens.infopanel import format_metadata, metadata_rows
+from sdflens.infopanel import format_metadata
 from sdflens.loader import Loader
 from sdflens.mainwindow import MainWindow
 from sdflens.mesh import SurfaceMesh
@@ -302,36 +302,15 @@ def test_colorbar_paints_with_and_without_range() -> None:
     assert not bar.grab().isNull()
 
 
-def test_metadata_lists_header_fields_only() -> None:
-    rows = dict(metadata_rows(make_sdf(make_ramp())))
-
-    assert list(rows) == [
-        "Version",
-        "ManufacID",
-        "CreateDate",
-        "ModDate",
-        "NumPoints",
-        "NumProfiles",
-        "Xscale",
-        "Yscale",
-        "Zscale",
-        "Zresolution",
-        "DataType",
-    ]
-    assert rows["Version"] == "bISO-2.0"
-    assert rows["NumPoints"] == str(COLS)
-    assert rows["Zresolution"] == "-1"
-
-
 def test_metadata_text_includes_the_trailer(tmp_path: Path) -> None:
     path = tmp_path / "trailer.sdf"
     sdfio.write(path, make_ramp(), x_scale=1e-6, y_scale=1e-6, trailer="OperatorName = Jane\r\n")
     text = format_metadata(sdfio.read(path))
 
-    assert text.startswith("Version")
-    assert "Trailer" in text
+    assert text.startswith("FILE")
+    assert "\n\nTRAILER\nOperatorName = Jane" in text
     assert text.rstrip().endswith("OperatorName = Jane")
-    assert "Trailer" not in format_metadata(make_sdf(make_ramp()))
+    assert "TRAILER" not in format_metadata(make_sdf(make_ramp()))
 
 
 def test_loader_reads_in_the_background(ramp_path: Path) -> None:
@@ -497,7 +476,7 @@ def test_export_and_copy_of_an_x3p_file_act_on_the_information(
     assert window._copy_metadata_action.isEnabled()
     window._export_action.trigger()
     text = target.read_text(encoding="utf-8")
-    assert "FeatureType" in text
+    assert "Feature         Surface" in text
     assert "http://www.vendor.com/mypath/a.xml" in text  # the extensions are listed
 
     QGuiApplication.clipboard().clear()
@@ -854,7 +833,7 @@ def test_export_and_copy_metadata(
     window._export_metadata()
     window._copy_metadata()
 
-    assert "ManufacID" in target.read_text(encoding="utf-8")
+    assert "Manufacturer" in target.read_text(encoding="utf-8")
     assert QGuiApplication.clipboard().text() == target.read_text(encoding="utf-8")
 
 
@@ -931,7 +910,7 @@ def test_command_line_takes_only_an_optional_file_name(capsys: pytest.CaptureFix
     capsys.readouterr()
 
 
-def test_copy_metadata_contains_header_fields_and_trailer(tmp_path: Path) -> None:
+def test_copy_metadata_is_what_the_panel_shows(tmp_path: Path) -> None:
     path = tmp_path / "trailer.sdf"
     sdfio.write(path, make_ramp(), x_scale=1e-6, y_scale=1e-6, trailer="OperatorName = Jane\r\n")
     window = MainWindow()
@@ -939,8 +918,12 @@ def test_copy_metadata_contains_header_fields_and_trailer(tmp_path: Path) -> Non
     window._copy_metadata()
     text = QGuiApplication.clipboard().text()
 
-    assert "ManufacID" in text
-    assert "Xscale" in text
+    lines = [" ".join(line.split()) for line in text.splitlines()]
+    # Every section of the panel is in the text, with each of its labels and values on one line.
+    for section in window._info_panel.sections:
+        assert section.title.upper() in lines
+        for label, value in section.rows:
+            assert f"{label} {value}" in lines
     assert text.rstrip().endswith("OperatorName = Jane")
     assert window._info_panel.trailer.toPlainText().strip() == "OperatorName = Jane"
 

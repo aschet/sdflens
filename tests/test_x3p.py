@@ -13,7 +13,7 @@ import x3pio
 
 from helpers import make_cloud, make_ramp, make_sdf, make_x3p
 from sdflens.glwidget import RenderMode, _primitives
-from sdflens.infopanel import extension_names, format_metadata, metadata_rows
+from sdflens.infopanel import extension_names, format_metadata
 from sdflens.mesh import SurfaceMesh
 from sdflens.pointcloud import PointCloudModel
 from sdflens.surface import NoMeasuredPointsError, SurfaceModel
@@ -200,44 +200,6 @@ def test_read_surface_file_tells_the_formats_apart(tmp_path: Path) -> None:
     assert isinstance(read_surface_file(str(sdf_path)), sdfio.SdfFile)
 
 
-def test_x3p_metadata_rows_show_both_records() -> None:
-    rows = dict(metadata_rows(make_x3p()))
-
-    assert rows["Revision"] == "ISO25178-72:2017/DAM1"
-    assert rows["FeatureType"] == "SUR"
-    assert rows["MatrixDimension.SizeX"] == "5"
-    assert rows["MatrixDimension.SizeY"] == "4"
-    assert rows["CX.AxisType"] == "incremental"
-    assert rows["CZ.DataType"] == "float64"
-    assert rows["CX.Increment"] == "1e-06"
-    assert rows["Creator"] == "Jane Doe"
-    assert rows["Comment"] == "Test surface"
-    assert rows["ProbingSystem.Type"] == "Software"
-    assert "Rotation" not in rows
-    assert "CalibrationDate" not in rows  # an optional field without a value is left out
-
-
-def test_point_cloud_metadata_rows_have_a_list_dimension() -> None:
-    rows = dict(metadata_rows(x3pio.PointCloud.from_points(make_cloud())))
-
-    assert rows["FeatureType"] == "PCL"
-    assert rows["ListDimension"] == "200"
-    assert "MatrixDimension.SizeX" not in rows
-
-
-def test_rotation_and_vendor_id_of_the_old_dialect_are_shown() -> None:
-    quarter_turn = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
-    x3p = make_x3p().with_revision(x3pio.Revision.ISO5436_2000, drop_extensions=True)
-    x3p = x3p.with_placement(x3pio.Placement(quarter_turn, offset=[1e-3, 0.0, 0.0]))
-    x3p.extensions.add("http://www.vendor.com/format", "a.bin", b"1")
-    rows = dict(metadata_rows(x3p))
-
-    assert rows["Revision"] == "ISO5436 - 2000"
-    assert rows["Rotation"] == "0 -1 0; 1 0 0; 0 0 1"
-    assert rows["CX.Offset"] == "0.001"
-    assert rows["VendorSpecificID"] == "http://www.vendor.com/format"
-
-
 def test_vendor_extensions_are_listed_by_their_id() -> None:
     assert extension_names(make_x3p()) == [
         "http://www.vendor.com/mypath/a.xml",
@@ -251,12 +213,12 @@ def test_exported_information_lists_the_vendor_extensions() -> None:
     lines = text.splitlines()
 
     assert any(line.startswith("Creator") for line in lines)
-    assert lines[-3].startswith("VendorExtensions")
+    assert lines[-3] == "VENDOR EXTENSIONS"
     assert lines[-2:] == [
         "http://www.vendor.com/mypath/a.xml",
         "http://www.vendor.com/image.png",
     ]
-    assert "VendorExtensions" not in format_metadata(x3pio.PointCloud.from_points(make_cloud()))
+    assert "VENDOR EXTENSIONS" not in format_metadata(x3pio.PointCloud.from_points(make_cloud()))
 
 
 def _profile(
