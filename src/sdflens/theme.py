@@ -125,7 +125,6 @@ QToolButton:disabled {{
     border-color: transparent;
 }}
 QToolBar QLabel {{
-    color: {t.muted};
     padding: 0 2px;
 }}
 QMenuBar {{

@@ -75,7 +75,6 @@ def test_x3p_point_cloud_is_a_point_cloud_model() -> None:
     assert model.invalid_count == 0
     assert 0.0 < model.extent_x <= 1e-3
     assert model.value_range.hi > model.value_range.lo
-    assert 1.0 <= model.auto_z_factor() <= 100.0
 
 
 def test_point_cloud_model_drops_points_that_are_not_measured() -> None:

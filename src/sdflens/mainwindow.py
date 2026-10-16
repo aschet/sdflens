@@ -451,7 +451,6 @@ class MainWindow(QMainWindow):
 
         self._z_bar = ZScaleBar(self)
         self._z_bar.factor_changed.connect(self._surface_view.set_z_factor)
-        self._z_bar.auto_requested.connect(self._on_z_auto)
         self.addToolBar(self._z_bar)
 
     def _current_mode(self) -> str:
@@ -539,10 +538,6 @@ class MainWindow(QMainWindow):
             view.set_lut(lut)
         self._colorbar.set_lut(lut)
 
-    def _on_z_auto(self) -> None:
-        if self._model is not None:
-            self._z_bar.set_factor(self._model.auto_z_factor())
-
     def _update_actions(self) -> None:
         loaded = self._file is not None
         idle = not self._loader.busy
@@ -555,7 +550,6 @@ class MainWindow(QMainWindow):
             self._zoom_out_action,
         ):
             action.setEnabled(loaded)
-        self._z_bar.set_auto_available(loaded)
         self._save_as_action.setEnabled(loaded)
         self._export_action.setEnabled(loaded)
         self._copy_metadata_action.setEnabled(loaded)

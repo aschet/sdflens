@@ -910,16 +910,12 @@ def test_z_controls_stay_in_sync() -> None:
     assert window._z_bar._slider.value() > 0
 
 
-def test_a_loaded_file_starts_at_true_scale_until_auto_is_requested(ramp_path: Path) -> None:
+def test_a_loaded_file_starts_at_true_scale(ramp_path: Path) -> None:
     window = MainWindow()
     window._z_bar.set_factor(7.0)
     _load(window, ramp_path)
 
     assert window._z_bar.factor == 1.0
-    assert window._model is not None
-    window._z_bar._auto.trigger()
-    assert window._z_bar.factor == pytest.approx(window._model.auto_z_factor())
-    assert window._z_bar.factor > 1.0
 
 
 def test_command_line_takes_only_an_optional_file_name(capsys: pytest.CaptureFixture[str]) -> None:

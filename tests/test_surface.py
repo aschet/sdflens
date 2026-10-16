@@ -9,7 +9,6 @@ import pytest
 
 from helpers import COLS, ROWS, make_ramp, make_sdf
 from sdflens.surface import (
-    AUTO_Z_FACTOR_MAX,
     NoMeasuredPointsError,
     SurfaceModel,
     data_range,
@@ -51,29 +50,3 @@ def test_profile_pixel_size_falls_back_to_the_x_scale() -> None:
 
     assert model.is_profile
     assert model.pixel_size_y == model.x_scale
-
-
-def test_auto_z_factor_fits_the_typical_height_to_the_default_fraction() -> None:
-    data = np.zeros((40, 40))
-    data[:, 20:] = 4e-6
-    model = SurfaceModel.from_sdf(make_sdf(data))  # extent 39 um, heights 0 and 4 um
-
-    assert model.auto_z_factor() == pytest.approx(0.15 * model.scale / 4e-6, rel=1e-6)
-
-
-def test_auto_z_factor_ignores_outliers() -> None:
-    data = np.zeros((100, 100))
-    data[:, 50:] = 1e-6
-    plain = SurfaceModel.from_sdf(make_sdf(data)).auto_z_factor()
-    data[0, 0] = 1e-3  # a single spike
-    spiked = SurfaceModel.from_sdf(make_sdf(data)).auto_z_factor()
-
-    assert spiked == pytest.approx(plain)
-
-
-def test_auto_z_factor_is_capped_and_needs_relief() -> None:
-    almost_flat = np.zeros((40, 40))
-    almost_flat[:, 20:] = 1e-9
-
-    assert SurfaceModel.from_sdf(make_sdf(almost_flat)).auto_z_factor() == AUTO_Z_FACTOR_MAX
-    assert SurfaceModel.from_sdf(make_sdf(np.ones((3, 3)) * 1e-6)).auto_z_factor() == 1.0

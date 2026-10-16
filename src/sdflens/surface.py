@@ -13,18 +13,7 @@ import numpy as np
 from numpy.typing import NDArray
 from sdfio import SdfFile
 
-from .zscale import clamp_z_factor
-
 __all__ = ["Model3D", "NoMeasuredPointsError", "SurfaceModel", "ValueRange", "data_range"]
-
-#: Fraction of the lateral extent the surface height should span by default.
-AUTO_HEIGHT_FRACTION = 0.15
-
-#: The automatic exaggeration stops here, since more mostly amplifies noise.
-AUTO_Z_FACTOR_MAX = 100.0
-
-#: Percentiles of the measured heights the automatic exaggeration fits, ignoring outliers.
-ROBUST_PERCENTILES = (0.5, 99.5)
 
 
 class NoMeasuredPointsError(ValueError):
@@ -73,9 +62,6 @@ class Model3D(Protocol):
     @property
     def color_offset(self) -> float:
         """Color fraction of a vertex at normalized z = 0."""
-
-    def auto_z_factor(self) -> float:
-        """Return the exaggeration making the typical height span a part of the extent."""
 
 
 @dataclass(frozen=True)
@@ -222,15 +208,3 @@ class SurfaceModel:
     def color_offset(self) -> float:
         """Color fraction of a vertex at normalized z = 0."""
         return (self.z_center - self.value_range.lo) / (self.value_range.hi - self.value_range.lo)
-
-    def auto_z_factor(self) -> float:
-        """Return the exaggeration making the typical height span a part of the extent.
-
-        Outliers are ignored (see :data:`ROBUST_PERCENTILES`) and the result is at most
-        :data:`AUTO_Z_FACTOR_MAX`; a surface without relief stays at 1.
-        """
-        low, high = np.percentile(self.data[self.valid], ROBUST_PERCENTILES)
-        fraction = (high - low) / self.scale
-        if fraction <= 0:
-            return 1.0
-        return clamp_z_factor(min(AUTO_HEIGHT_FRACTION / fraction, AUTO_Z_FACTOR_MAX))
