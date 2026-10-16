@@ -148,9 +148,11 @@ class InfoPanel(QScrollArea):
         for section in self.sections:
             self._add_heading(section.title)
             if section.text:
-                self._layout.addWidget(self._selectable(section.text))
+                self._layout.addWidget(self._selectable(section.text), 0, Qt.AlignmentFlag.AlignTop)
             else:
-                self._layout.addWidget(self._rows(section.rows, label_width))
+                self._layout.addWidget(
+                    self._rows(section.rows, label_width), 0, Qt.AlignmentFlag.AlignTop
+                )
 
         text = trailer_text(file).strip() if isinstance(file, SdfFile) else ""
         self.trailer.setPlainText(text)
@@ -206,14 +208,13 @@ class InfoPanel(QScrollArea):
             name = self._selectable(_translated(label))
             name.setWordWrap(False)
             layout.addWidget(name, index, 0, Qt.AlignmentFlag.AlignTop)
-            layout.addWidget(self._selectable(value), index, 1)
+            layout.addWidget(self._selectable(value), index, 1, Qt.AlignmentFlag.AlignTop)
         return grid
 
     def _show_block(self, block: QWidget, lines: int) -> None:
         """Show the trailer or the extensions: the height the panel has left."""
         spacing = self.fontMetrics().lineSpacing()
         block.setMinimumHeight((min(lines, _MIN_BLOCK_LINES) + 1) * spacing + 8)
-        block.setMaximumHeight((lines + 1) * spacing + 8)
         # Its own size hint is ignored: the panel gives it what the sections leave free.
         block.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
         self._layout.addWidget(block, 1)
