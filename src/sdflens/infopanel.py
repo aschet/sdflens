@@ -36,8 +36,8 @@ __all__ = [
     "trailer_text",
 ]
 
-#: Width in characters that fits the longest values, such as the revision of an x3p file.
-_MIN_COLUMNS = 48
+#: Narrowest width in characters; longer values wrap.
+_MIN_COLUMNS = 28
 
 #: The trailer and the list of extensions show at most this many lines before they scroll.
 _MAX_BLOCK_LINES = 10

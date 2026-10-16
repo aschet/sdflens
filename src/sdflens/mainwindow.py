@@ -366,6 +366,11 @@ class MainWindow(QMainWindow):
         # Like the drawer of sdflens web, it stays at the side and is closed, not moved around.
         self._info_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._info_dock)
+        self.resizeDocks(
+            [self._info_dock],
+            [self.fontMetrics().averageCharWidth() * 44],
+            Qt.Orientation.Horizontal,
+        )
         self._info_toggle_action = self._info_dock.toggleViewAction()
         self._info_toggle_action.setText(self.tr("In&formation"))
         self._info_toggle_action.setShortcut(QKeySequence(self.tr("Ctrl+I", "shortcut")))
