@@ -39,7 +39,7 @@ __all__ = [
 #: Narrowest width in characters; longer values wrap.
 _MIN_COLUMNS = 28
 
-#: The trailer and the list of extensions show at most this many lines before they scroll.
+#: The trailer and the list of extensions always have room for this many lines.
 _MAX_BLOCK_LINES = 10
 
 
@@ -164,7 +164,8 @@ class InfoPanel(QScrollArea):
         if names:
             self._add_heading("Vendor extensions")
             self._show_block(self.extensions, len(names))
-        self._layout.addStretch(1)
+        if not text and not names:
+            self._layout.addStretch(1)
 
     def _clear(self) -> None:
         """Remove what is shown, keeping the trailer and the extensions for the next file."""
@@ -208,10 +209,11 @@ class InfoPanel(QScrollArea):
         return grid
 
     def _show_block(self, block: QWidget, lines: int) -> None:
-        """Show the trailer or the extensions with room for their lines, at most ten of them."""
-        shown = min(lines, _MAX_BLOCK_LINES)
-        block.setFixedHeight((shown + 1) * self.fontMetrics().lineSpacing() + 8)
-        self._layout.addWidget(block)
+        """Show the trailer or the extensions: room for ten lines, more where the panel has it."""
+        spacing = self.fontMetrics().lineSpacing()
+        block.setMinimumHeight((min(lines, _MAX_BLOCK_LINES) + 1) * spacing + 8)
+        block.setMaximumHeight((lines + 1) * spacing + 8)
+        self._layout.addWidget(block, 1)
         block.show()
 
     def extension_menu(self, item: QListWidgetItem) -> QMenu:
