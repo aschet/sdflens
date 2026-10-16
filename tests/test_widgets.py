@@ -1805,7 +1805,7 @@ def test_the_profile_overview_shows_where_the_profile_lies_while_the_slider_is_u
     window.close()
 
 
-def test_theme_follows_the_color_scheme(qapp):
+def test_theme_follows_the_color_scheme(qapp: QApplication) -> None:
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QPalette
 
