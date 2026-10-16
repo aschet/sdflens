@@ -484,9 +484,7 @@ class MainWindow(QMainWindow):
     def _has_profile_view(self) -> bool:
         """Whether the profile view applies: to a regular grid, or to an irregular profile."""
         model = self._model
-        return self._has_grid_views or (
-            isinstance(model, PointCloudModel) and model.profile_axis is not None
-        )
+        return self._has_grid_views or (isinstance(model, PointCloudModel) and model.is_profile)
 
     def _choose_view(self, mode: str) -> None:
         """Show the view the user chose and prefer it for the next file."""
@@ -559,7 +557,7 @@ class MainWindow(QMainWindow):
         if isinstance(model, SurfaceModel) and model.is_profile:
             # A profile has one length: along x for a row, along y for a single column.
             sizes = [model.size_y if model.num_points < 2 else model.size_x]
-        if isinstance(model, PointCloudModel) and model.profile_axis is not None:
+        if isinstance(model, PointCloudModel) and model.is_profile:
             # An irregular profile has one length, unless it runs along a diagonal.
             sizes = [size for size in sizes if size > 0.0] or sizes[:1]
         values, unit = format_values(sizes)

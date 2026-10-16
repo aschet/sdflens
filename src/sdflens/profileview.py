@@ -454,8 +454,8 @@ class ProfileView(QWidget):
         """Create an empty view."""
         super().__init__(parent)
         self._model: SurfaceModel | None = None
-        #: The positions, the heights and the axis of an irregular profile, in place of a model.
-        self._irregular: tuple[NDArray[np.float64], NDArray[np.float64], str] | None = None
+        #: The positions and the heights of an irregular profile, in place of a model.
+        self._irregular: tuple[NDArray[np.float64], NDArray[np.float64]] | None = None
         self._values: NDArray[np.float64] = np.empty(0)
         self._step = 1.0
 
@@ -505,11 +505,9 @@ class ProfileView(QWidget):
         """
         self._irregular = None
         if isinstance(model, PointCloudModel):
-            if model.profile_axis is not None:
-                column = 0 if model.profile_axis == "x" else 1
-                order = np.argsort(model.points[:, column], kind="stable")
-                along = model.points[order]
-                self._irregular = (length_along(along), along[:, 2], model.profile_axis)
+            if model.is_profile:
+                along = model.points[np.argsort(model.points[:, 0], kind="stable")]
+                self._irregular = (length_along(along), along[:, 2])
             model = None
         self._model = model
         self._overview.set_model(model)
@@ -557,9 +555,7 @@ class ProfileView(QWidget):
 
     @property
     def _along_x(self) -> bool:
-        if self._irregular is not None:
-            return self._irregular[2] == "x"
-        return self._direction.currentIndex() == 0
+        return self._irregular is not None or self._direction.currentIndex() == 0
 
     def _configure(self, index: int) -> None:
         """Set the selectable range for the current direction and select profile ``index``."""
@@ -591,7 +587,7 @@ class ProfileView(QWidget):
     def _show(self) -> None:
         model = self._model
         if self._irregular is not None:
-            positions, self._values, _axis = self._irregular
+            positions, self._values = self._irregular
             # The mean distance between the points stands for the step.
             self._step = float(positions[-1] - positions[0]) / max(len(positions) - 1, 1) or 1.0
             self._save.setEnabled(False)  # an irregular profile cannot be saved as a profile

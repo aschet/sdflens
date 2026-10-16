@@ -145,7 +145,7 @@ def build_model(file: SurfaceFile, layer: int = 0) -> SurfaceModel | PointCloudM
     points = chosen.points(coordinate_system=x3pio.CoordinateSystem.VIEW)
     if profile is not None:
         irregular = PointCloudModel.from_points(points.reshape(-1, 3))
-        return replace(irregular, profile_axis="x")
+        return replace(irregular, is_profile=True)
     if isinstance(chosen, x3pio.SurfaceLayer):
         return PointCloudModel.from_grid(points)
     return PointCloudModel.from_points(points.reshape(-1, 3))
