@@ -32,7 +32,7 @@ dependencies = [
     "numpy>=1.24",
     "PySide6-Essentials>=6.10",
     "sdfio>=2.0.0",
-    "x3pio>=1.0.0",
+    "x3pio>=2.0.0",
 ]
 
 [project.urls]

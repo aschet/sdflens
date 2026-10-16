@@ -32,7 +32,6 @@ __all__ = [
     "convert_file",
     "convert_for_export",
     "convert_x3p_for_export",
-    "extensions_fit",
     "format_problem",
     "not_a_grid",
     "sdf_to_x3p",
@@ -198,23 +197,14 @@ def x3p_to_sdf(x3p: x3pio.X3pFile, layer: int = 0, apply_z_offset: bool = False)
     return SdfFile(header=header, data=data)
 
 
-def extensions_fit(x3p: x3pio.X3pFile, revision: x3pio.Revision) -> bool:
-    """Whether the vendor extensions of ``x3p`` can be kept in ``revision``."""
-    try:
-        x3p.with_revision(revision)
-    except x3pio.X3pFormatError:
-        return False
-    return True
-
-
 def convert_x3p_for_export(
     x3p: x3pio.X3pFile, revision: x3pio.Revision, data_type: x3pio.DataType
 ) -> x3pio.X3pFile:
     """Return ``x3p`` retargeted to ``revision`` and the storage type of the heights.
 
     The vendor extensions are left out if ``revision`` cannot hold them, see
-    :func:`extensions_fit`. The scale of the heights is the finest that fits ``data_type``. The
-    input is not modified.
+    :meth:`x3pio.X3pFile.extensions_fit`. The scale of the heights is the finest that fits
+    ``data_type``. The input is not modified.
 
     :raises X3pFormatError: If the data cannot be stored in ``data_type``.
     """

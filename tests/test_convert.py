@@ -19,7 +19,6 @@ from sdflens.convert import (
     allowed_data_types,
     convert_file,
     convert_for_export,
-    extensions_fit,
     format_problem,
     profile_file,
     sdf_to_x3p,
@@ -250,8 +249,8 @@ def test_point_cloud_converts_between_x3p_versions_and_types(tmp_path: Path) -> 
 def test_vendor_extensions_are_kept_when_they_fit_and_dropped_when_not() -> None:
     x3p = make_x3p()  # two IDs: the standard before the amendment has a place for one only
 
-    assert extensions_fit(x3p, x3pio.Revision.ISO25178_72_2017_DAM1)
-    assert not extensions_fit(x3p, x3pio.Revision.ISO5436_2000)
+    assert x3p.extensions_fit(x3pio.Revision.ISO25178_72_2017_DAM1)
+    assert not x3p.extensions_fit(x3pio.Revision.ISO5436_2000)
     kept = convert_file(x3p, x3pio.Revision.ISO25178_72_2017_DAM1, x3pio.DataType.FLOAT64)
     dropped = convert_file(x3p, x3pio.Revision.ISO5436_2000, x3pio.DataType.FLOAT64)
     assert isinstance(kept, x3pio.X3pFile)
