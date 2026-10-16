@@ -620,6 +620,29 @@ def test_export_and_copy_of_an_sdf_file_act_on_the_information(ramp_path: Path) 
     window.close()
 
 
+def test_a_profile_has_no_2d_view_and_a_preferred_2d_view_gives_way_to_the_profile_view(
+    ramp_path: Path, tmp_path: Path
+) -> None:
+    profile_path = tmp_path / "profile.sdf"
+    heights = 1e-7 * np.sin(np.linspace(0.0, 6.0, 40)).reshape(1, -1)
+    sdfio.write(profile_path, heights, x_scale=1e-6, y_scale=1e-6, z_scale=1e-12)
+    window = MainWindow()
+    window._choose_view("2d")
+    _load(window, ramp_path)
+
+    assert window._current_mode() == "2d"
+    assert window._view_2d_action.isEnabled()
+    _load(window, profile_path)
+    assert not window._view_2d_action.isEnabled()
+    assert window._view_profile_action.isEnabled()
+    assert window._view_3d_action.isEnabled()  # the 3D view shows a profile as well
+    assert window._current_mode() == "profile"
+    _load(window, ramp_path)  # the choice of the 2D view is not forgotten
+    assert window._current_mode() == "2d"
+    assert window._view_2d_action.isEnabled()
+    window.close()
+
+
 def test_point_cloud_has_no_2d_or_profile_view(ramp_path: Path, tmp_path: Path) -> None:
     cloud_path = tmp_path / "cloud.x3p"
     x3pio.write_points(cloud_path, make_cloud())

@@ -481,6 +481,12 @@ class MainWindow(QMainWindow):
         return self._model is None or isinstance(self._model, SurfaceModel)
 
     @property
+    def _has_2d_view(self) -> bool:
+        """Whether the 2D view applies: to a surface on a regular grid, not to a profile."""
+        model = self._model
+        return model is None or (isinstance(model, SurfaceModel) and not model.is_profile)
+
+    @property
     def _has_profile_view(self) -> bool:
         """Whether the profile view applies: to a regular grid, or to an irregular profile."""
         model = self._model
@@ -544,7 +550,7 @@ class MainWindow(QMainWindow):
         self._save_as_action.setEnabled(loaded)
         self._export_action.setEnabled(loaded)
         self._copy_metadata_action.setEnabled(loaded)
-        self._view_2d_action.setEnabled(self._has_grid_views)
+        self._view_2d_action.setEnabled(self._has_2d_view)
         self._view_profile_action.setEnabled(self._has_profile_view)
 
     def _update_title(self, path: str | None = None) -> None:
@@ -660,6 +666,8 @@ class MainWindow(QMainWindow):
         self._stats_label.setText(self._stats_text(model, mesh))
         self._z_bar.set_factor(1.0)
         wanted = self._view_preference
+        if wanted == _VIEW_2D and not self._has_2d_view:
+            wanted = _VIEW_PROFILE if self._has_profile_view else _VIEW_3D
         if not self._has_grid_views and not (wanted == _VIEW_PROFILE and self._has_profile_view):
             wanted = _VIEW_3D
         self._set_view_mode(wanted)
