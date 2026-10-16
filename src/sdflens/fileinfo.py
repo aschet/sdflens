@@ -169,9 +169,6 @@ def _describe_x3p(x3p: x3pio.X3pFile, format_date: Callable[[datetime], str]) ->
         ("Dimension", _dimension(isinstance(x3p, x3pio.Surface), columns, rows)),
         ("Step", _x3p_step(x3p)),
     ]
-    placement = x3p.placement
-    if placement.has_rotation or any(placement.offset):
-        data.append(("Placement", "stored in the file, not applied"))
     sections = [
         InfoSection("File", file),
         InfoSection("Data", tuple(data)),

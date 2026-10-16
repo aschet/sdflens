@@ -79,7 +79,6 @@ def test_an_x3p_surface_says_what_it_stores() -> None:
     assert info["Data"]["Step"].count(TIMES) == 1
     assert info["Instrument"]["Manufacturer"] == "x3pio"
     assert info["Probing"]["Type"] == "Software"
-    assert "Placement" not in info["Data"]
 
 
 def test_an_x3p_point_cloud_is_absolute_in_all_axes_and_irregular() -> None:
@@ -131,12 +130,6 @@ def test_placeholders_and_missing_values_show_as_a_dash() -> None:
     assert info["File"]["Date"] == "-"
     assert set(info["Instrument"].values()) == {"-"}
     assert set(info["Probing"].values()) == {"-"}
-
-
-def test_a_placement_of_an_x3p_file_is_said_not_to_be_applied() -> None:
-    placed = make_x3p().with_placement(x3pio.Placement.translation(0.0, 0.0, 1e-3))
-
-    assert sections(placed)["Data"]["Placement"] == "stored in the file, not applied"
 
 
 def test_dates_are_written_by_the_given_function_or_as_local_time() -> None:
