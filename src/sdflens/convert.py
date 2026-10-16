@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 
@@ -16,14 +16,12 @@ from numpy.typing import NDArray
 from sdfio import (
     DataType,
     FileFormat,
-    SdfDialect,
+    Header,
     SdfFile,
     SdfFormatError,
-    SdfHeader,
-    get_data_type,
-    suggest_z_scale,
     validate_trailer_tagged,
 )
+from sdfio import Revision as SdfRevision
 
 from .surfacefile import SurfaceFile, is_grid
 
@@ -42,13 +40,6 @@ __all__ = [
     "x3p_to_sdf",
 ]
 
-# Largest NumPoints/NumProfiles of the binary format: uint16 for 1.0, uint32 for 2.0 (Table 2).
-_MAX_BINARY_COUNT = {
-    SdfDialect.ISO_1_0: 2**16 - 1,
-    SdfDialect.BCR_1_0: 2**16 - 1,
-    SdfDialect.ISO_2_0: 2**32 - 1,
-}
-
 
 class ProblemKind(StrEnum):
     """Why a file cannot be saved in a version and format."""
@@ -65,48 +56,41 @@ class ExportProblem:
     limit: int = 0
 
 
-def allowed_data_types(dialect: SdfDialect) -> list[DataType]:
-    """Return the data types the standard allows for ``dialect``.
+def allowed_data_types(revision: SdfRevision) -> list[DataType]:
+    """Return the data types the standard allows for ``revision``.
 
-    >>> [t.name for t in allowed_data_types(SdfDialect.ISO_1_0)]
+    >>> [t.name for t in allowed_data_types(SdfRevision.ISO_1_0)]
     ['INT16', 'INT32', 'BINARY64']
     """
-    return [data_type for data_type in DataType if get_data_type(data_type).is_supported(dialect)]
+    return list(revision.rules.data_types)
 
 
 def format_problem(
-    sdf: SdfFile, dialect: SdfDialect, file_format: FileFormat
+    sdf: SdfFile, revision: SdfRevision, file_format: FileFormat
 ) -> ExportProblem | None:
-    """Return why ``sdf`` can't be saved as ``dialect`` in ``file_format``, or ``None``.
+    """Return why ``sdf`` can't be saved as ``revision`` in ``file_format``, or ``None``.
 
     Data types are checked separately, see :func:`allowed_data_types`.
     """
-    limit = _MAX_BINARY_COUNT[dialect]
-    if file_format is FileFormat.BINARY and max(sdf.header.shape) > limit:
+    limit = revision.rules.max_binary_count
+    if file_format is FileFormat.BINARY and max(sdf.data.shape) > limit:
         return ExportProblem(ProblemKind.BINARY_LIMIT, limit)
     try:
-        validate_trailer_tagged(dialect, sdf.trailer)
+        validate_trailer_tagged(revision, sdf.trailer)
     except SdfFormatError:
         return ExportProblem(ProblemKind.UNTAGGED_TRAILER)
     return None
 
 
-def convert_for_export(sdf: SdfFile, dialect: SdfDialect, data_type: DataType) -> SdfFile:
-    """Return ``sdf`` retargeted to ``dialect`` and ``data_type``, ready to save.
+def convert_for_export(sdf: SdfFile, revision: SdfRevision, data_type: DataType) -> SdfFile:
+    """Return ``sdf`` retargeted to ``revision`` and ``data_type``, ready to save.
 
     The Z-scale is kept when the data fits the new type, otherwise the finest scale that fits is
     used. The input is not modified.
 
-    :raises SdfFormatError: If the trailer is invalid for ``dialect`` or the data can't be encoded.
+    :raises SdfFormatError: If the trailer is invalid for ``revision`` or the data can't be encoded.
     """
-    converted = sdf.with_dialect(dialect, data_type=data_type)
-    try:
-        converted.raw_data()
-    except SdfFormatError:
-        converted.header.z_scale = suggest_z_scale(
-            converted.data, get_data_type(data_type), dialect
-        )
-    return converted
+    return sdf.with_revision(revision, data_type=data_type, refit_z_scale=True)
 
 
 #: The longest manufacturer ID of an SDF file.
@@ -130,7 +114,7 @@ def _ascii(text: str, limit: int | None = None) -> str:
 
 
 def sdf_to_x3p(sdf: SdfFile) -> x3pio.X3pFile:
-    """Return the x3p file that holds the surface of ``sdf``, as float64 in the newest dialect.
+    """Return the x3p file that holds the surface of ``sdf``, as float64 in the newest revision.
 
     The manufacturer ID becomes the manufacturer of the instrument and the creation date the date.
     The trailer is not saved.
@@ -141,7 +125,7 @@ def sdf_to_x3p(sdf: SdfFile) -> x3pio.X3pFile:
         instrument=x3pio.Instrument(manufacturer=header.manufacturer_id),
     )
     data = np.asarray(sdf.data, dtype=np.float64)
-    if header.num_profiles == 1:
+    if sdf.is_profile:
         return x3pio.Profile.from_array(data[0], x_scale=float(header.x_scale), metadata=metadata)
     return x3pio.Surface.from_array(
         data, x_scale=float(header.x_scale), y_scale=float(header.y_scale), metadata=metadata
@@ -156,8 +140,7 @@ def profile_file(file: SurfaceFile, values: NDArray[np.float64], step: float) ->
     """
     heights = np.array(values, dtype=np.float64)
     if isinstance(file, SdfFile):
-        header = replace(file.header, num_profiles=1, num_points=heights.size, x_scale=step)
-        return SdfFile(header=header, data=heights.reshape(1, -1), trailer=file.trailer)
+        return file.with_data(heights.reshape(1, -1), x_scale=step)
     return x3pio.Profile.from_array(
         heights,
         x_scale=step,
@@ -204,14 +187,11 @@ def x3p_to_sdf(x3p: x3pio.X3pFile, layer: int = 0, apply_z_offset: bool = False)
     manufacturer = ""
     if metadata is not None:
         manufacturer = metadata.instrument.manufacturer
-        if metadata.date is not None:
-            create_date = metadata.date.astimezone(UTC)
-    header = SdfHeader(
+        create_date = metadata.date
+    header = Header(
         manufacturer_id=_ascii(manufacturer, _MANUFACTURER_ID_LENGTH) or "sdflens",
         create_date=create_date,
         mod_date=None,
-        num_points=data.shape[1],
-        num_profiles=data.shape[0],
         x_scale=abs(float(chosen.header.x.increment)),
         y_scale=abs(float(chosen.header.y.increment)),
     )
@@ -246,13 +226,13 @@ def convert_x3p_for_export(
 
 def convert_file(
     file: SurfaceFile,
-    dialect: SdfDialect | x3pio.Revision,
+    revision: SdfRevision | x3pio.Revision,
     data_type: DataType | x3pio.DataType,
     layer: int = 0,
     single_layer: bool = False,
     apply_z_offset: bool = False,
 ) -> SdfFile | x3pio.X3pFile:
-    """Return ``file`` converted to the format of ``dialect``, ready to save.
+    """Return ``file`` converted to the format of ``revision``, ready to save.
 
     An SDF file holds one grid, so of several layers the one asked for, counted from 0, is saved
     as SDF. An x3p file keeps all its layers, or with ``single_layer`` only that one, with the
@@ -262,14 +242,14 @@ def convert_file(
 
     :raises SdfFormatError: If an SDF file cannot be made of the data, or encode it.
     :raises X3pFormatError: If an x3p file cannot encode the data.
-    :raises TypeError: If ``data_type`` is not one of the format of ``dialect``.
+    :raises TypeError: If ``data_type`` is not one of the format of ``revision``.
     """
-    if isinstance(dialect, SdfDialect) and isinstance(data_type, DataType):
+    if isinstance(revision, SdfRevision) and isinstance(data_type, DataType):
         sdf = file if isinstance(file, SdfFile) else x3p_to_sdf(file, layer, apply_z_offset)
-        return convert_for_export(sdf, dialect, data_type)
-    if isinstance(dialect, x3pio.Revision) and isinstance(data_type, x3pio.DataType):
+        return convert_for_export(sdf, revision, data_type)
+    if isinstance(revision, x3pio.Revision) and isinstance(data_type, x3pio.DataType):
         x3p = sdf_to_x3p(file) if isinstance(file, SdfFile) else file
         if single_layer and len(x3p.layers) > 1:
             x3p = x3p.with_layers([x3p.layers[layer]])
-        return convert_x3p_for_export(x3p, dialect, data_type)
-    raise TypeError("The data type does not belong to the format of the dialect")
+        return convert_x3p_for_export(x3p, revision, data_type)
+    raise TypeError("The data type does not belong to the format of the revision")

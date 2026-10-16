@@ -20,7 +20,8 @@ from PySide6.QtWidgets import (
     QLayout,
     QWidget,
 )
-from sdfio import DataType, FileFormat, SdfDialect, SdfFile
+from sdfio import DataType, FileFormat, SdfFile
+from sdfio import Revision as SdfRevision
 
 from .convert import (
     ExportProblem,
@@ -37,7 +38,7 @@ from .surfacefile import SurfaceFile, is_grid
 __all__ = ["SaveOptionsDialog"]
 
 _X3P_REVISIONS = (x3pio.Revision.ISO25178_72_2017_DAM1, x3pio.Revision.ISO5436_2000)
-_NEWEST_SDF = str(SdfDialect.ISO_2_0)
+_NEWEST_SDF = str(SdfRevision.ISO_2_0)
 _NEWEST_X3P = x3pio.Revision.ISO25178_72_2017_DAM1.value
 
 
@@ -89,8 +90,8 @@ class SaveOptionsDialog(QDialog):
             for x3p_type in x3p_data_types():
                 self._data_type.addItem(x3p_type.name.lower(), x3p_type)
         else:
-            for sdf_dialect in SdfDialect:
-                self._version.addItem(str(sdf_dialect), sdf_dialect)
+            for sdf_revision in SdfRevision:
+                self._version.addItem(str(sdf_revision), sdf_revision)
             self._encoding.addItem(self.tr("Binary"), FileFormat.BINARY)
             self._encoding.addItem(self.tr("ASCII"), FileFormat.ASCII)
             for sdf_type in DataType:
@@ -129,10 +130,10 @@ class SaveOptionsDialog(QDialog):
         self._z_offset.toggled.connect(lambda _checked: self._update())
 
     @property
-    def dialect(self) -> SdfDialect | x3pio.Revision:
+    def revision(self) -> SdfRevision | x3pio.Revision:
         """The chosen version of the standard."""
         data = self._version.currentData()
-        return x3pio.Revision(data) if self._is_x3p else SdfDialect(data)
+        return x3pio.Revision(data) if self._is_x3p else SdfRevision(data)
 
     @property
     def file_format(self) -> FileFormat | x3pio.DataStorage:
@@ -175,9 +176,9 @@ class SaveOptionsDialog(QDialog):
         """Select the options of the loaded file where it has the format that is saved."""
         file = self._file
         if isinstance(file, SdfFile) and not self._is_x3p:
-            self._select(self._version, str(SdfDialect(file.header.dialect)))
-            self._encoding.setCurrentIndex(0 if file.header.binary else 1)
-            self._select(self._data_type, DataType(file.header.data_type).name.lower())
+            self._select(self._version, str(file.header.revision))
+            self._encoding.setCurrentIndex(0 if file.header.format is FileFormat.BINARY else 1)
+            self._select(self._data_type, file.header.data_type.name.lower())
         elif isinstance(file, x3pio.X3pFile) and self._is_x3p:
             self._select(self._version, file.revision.value)
             self._encoding.setCurrentIndex(0 if file.storage is x3pio.DataStorage.BINARY else 1)
@@ -199,24 +200,24 @@ class SaveOptionsDialog(QDialog):
 
     def _problem(self) -> ExportProblem | None:
         """Return why the file cannot be saved with the chosen version and encoding."""
-        dialect, file_format = self.dialect, self.file_format
-        if not isinstance(dialect, SdfDialect) or self._sdf is None:
+        revision, file_format = self.revision, self.file_format
+        if not isinstance(revision, SdfRevision) or self._sdf is None:
             return None
-        return format_problem(self._sdf, dialect, cast(FileFormat, file_format))
+        return format_problem(self._sdf, revision, cast(FileFormat, file_format))
 
     def _problem_text(self, problem: ExportProblem) -> str:
-        dialect = self.version_name
+        version = self.version_name
         if problem.kind is ProblemKind.BINARY_LIMIT:
             return self.tr(
                 "The binary encoding of {version} stores at most {limit} points per row."
-            ).format(version=dialect, limit=problem.limit)
+            ).format(version=version, limit=problem.limit)
         return self.tr(
             'The trailer must be in the tagged "Name = Value" format for {version}.'
-        ).format(version=dialect)
+        ).format(version=version)
 
     def _consequences(self) -> str:
         """Return what saving in the chosen version loses or changes, or an empty string."""
-        file, dialect = self._file, self.dialect
+        file, revision = self._file, self.revision
         if isinstance(file, SdfFile):
             return ""
         if not self._is_x3p:
@@ -225,19 +226,19 @@ class SaveOptionsDialog(QDialog):
                 lines.append(self.tr("Only the current layer is saved."))
             return "\n".join(lines)
         if (
-            isinstance(dialect, x3pio.Revision)
+            isinstance(revision, x3pio.Revision)
             and file.extensions
-            and not extensions_fit(file, dialect)
+            and not extensions_fit(file, revision)
         ):
             return self.tr("The vendor extensions cannot be saved in this version.")
         return ""
 
     def _update(self) -> None:
         """Disable the data types the version does not define, and say what is lost or wrong."""
-        dialect = self.dialect
+        revision = self.revision
         first_valid: int | None = None
-        if isinstance(dialect, SdfDialect):
-            allowed = allowed_data_types(dialect)
+        if isinstance(revision, SdfRevision):
+            allowed = allowed_data_types(revision)
             model = cast(QStandardItemModel, self._data_type.model())
             for index in range(self._data_type.count()):
                 supported = DataType(self._data_type.itemData(index)) in allowed

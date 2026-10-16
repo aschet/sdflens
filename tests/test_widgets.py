@@ -615,7 +615,7 @@ def _save_the_shown_profile(
 
     assert seen[0][0] == "ramp_profile_3.sdf"  # the name suggested in the file dialog
     row = sdfio.read(target)
-    assert (row.header.num_profiles, row.header.num_points) == (1, make_ramp().shape[1])
+    assert row.data.shape == (1, make_ramp().shape[1])
     np.testing.assert_allclose(row.data[0], make_ramp()[2], atol=1e-9, equal_nan=True)
     assert row.header.x_scale == 1e-6
 
@@ -977,7 +977,7 @@ def test_options_dialog_presets_from_the_sdf_file_and_disables_unsupported_data_
     assert dialog.version_name == "ISO-2.0"
     assert dialog.encoding_name == "Binary"
     assert dialog.file_format is sdfio.FileFormat.BINARY
-    assert dialog.dialect is sdfio.SdfDialect.ISO_2_0
+    assert dialog.revision is sdfio.Revision.ISO_2_0
     assert dialog.data_type is sdfio.DataType.BINARY64
     assert len(_enabled(dialog._data_type)) == 5
     dialog._version.setCurrentText("ISO-1.0")
@@ -1007,7 +1007,7 @@ def test_options_dialog_uses_the_last_options_when_valid(ramp_path: Path) -> Non
         sdfio.read(ramp_path), is_x3p=False, last=("BCR-1.0", "ASCII", "int16")
     )
 
-    assert dialog.dialect is sdfio.SdfDialect.BCR_1_0
+    assert dialog.revision is sdfio.Revision.BCR_1_0
     assert dialog.file_format is sdfio.FileFormat.ASCII
     assert dialog.data_type_name == "int16"
 
@@ -1047,7 +1047,7 @@ def test_options_dialog_cannot_be_accepted_for_a_large_grid_in_a_small_version(
 
 def test_options_dialog_cannot_be_accepted_for_an_untagged_trailer(tmp_path: Path) -> None:
     path = tmp_path / "bcr.sdf"
-    metadata = sdfio.SdfMetadata(dialect=sdfio.SdfDialect.BCR_1_0)
+    metadata = sdfio.Metadata(revision=sdfio.Revision.BCR_1_0)
     sdfio.write(path, make_ramp(), x_scale=1e-6, y_scale=1e-6, metadata=metadata, trailer="free")
     dialog = SaveOptionsDialog(sdfio.read(path), is_x3p=False)
 
@@ -1098,15 +1098,15 @@ def test_save_as_writes_the_chosen_version_format_and_type(ramp_path: Path, tmp_
     window._exporter.write_export(
         sdfio.read(ramp_path),
         str(target),
-        sdfio.SdfDialect.BCR_1_0,
+        sdfio.Revision.BCR_1_0,
         sdfio.DataType.INT16,
         sdfio.FileFormat.ASCII,
     )
     loaded = sdfio.read(target)
 
-    assert loaded.header.dialect is sdfio.SdfDialect.BCR_1_0
-    assert not loaded.header.binary
-    assert loaded.data_type is sdfio.DataType.INT16
+    assert loaded.header.revision is sdfio.Revision.BCR_1_0
+    assert loaded.header.format is sdfio.FileFormat.ASCII
+    assert loaded.header.data_type is sdfio.DataType.INT16
     assert np.array_equal(np.isnan(loaded.data), np.isnan(make_ramp()))
 
 
@@ -1120,7 +1120,7 @@ def test_save_as_reports_failures(
     window._exporter.write_export(
         sdfio.read(ramp_path),
         str(tmp_path / "missing-dir" / "out.sdf"),
-        sdfio.SdfDialect.ISO_2_0,
+        sdfio.Revision.ISO_2_0,
         sdfio.DataType.BINARY64,
         sdfio.FileFormat.BINARY,
     )
@@ -1138,7 +1138,7 @@ def test_options_dialog_for_x3p_offers_its_versions_encodings_and_data_types(
     assert _enabled(dialog._version) == ["ISO25178-72:2017/DAM1", "ISO5436 - 2000"]
     assert _enabled(dialog._encoding) == ["Binary", "XML"]
     assert _enabled(dialog._data_type) == ["int16", "int32", "float32", "float64"]
-    assert dialog.dialect is x3pio.Revision.ISO25178_72_2017_DAM1  # the newest
+    assert dialog.revision is x3pio.Revision.ISO25178_72_2017_DAM1  # the newest
     assert dialog.file_format is x3pio.DataStorage.BINARY
     assert dialog.data_type is x3pio.DataType.FLOAT64
     assert not dialog._note.text()
@@ -1160,7 +1160,7 @@ def test_options_dialog_says_what_an_sdf_file_of_an_x3p_file_loses() -> None:
         x3pio.Surface.from_array(layers, x_scale=1e-6, y_scale=1e-6), is_x3p=False
     )
 
-    assert dialog.dialect is sdfio.SdfDialect.ISO_2_0
+    assert dialog.revision is sdfio.Revision.ISO_2_0
     assert "vendor extensions" in dialog._note.text()
     assert "Only the current layer is saved" in dialog._note.text()
     assert _ok(dialog).isEnabled()
@@ -1182,7 +1182,7 @@ def test_options_dialog_remembers_an_x3p_choice() -> None:
         make_sdf(make_ramp()), is_x3p=True, last=("ISO5436 - 2000", "XML", "float32")
     )
 
-    assert dialog.dialect is x3pio.Revision.ISO5436_2000
+    assert dialog.revision is x3pio.Revision.ISO5436_2000
     assert dialog.file_format is x3pio.DataStorage.XML
     assert dialog.data_type is x3pio.DataType.FLOAT32
 
@@ -1365,7 +1365,7 @@ def test_save_as_writes_x3p_from_sdf_and_sdf_from_x3p(ramp_path: Path, tmp_path:
     window._exporter.write_export(
         loaded,
         str(back),
-        sdfio.SdfDialect.ISO_2_0,
+        sdfio.Revision.ISO_2_0,
         sdfio.DataType.BINARY64,
         sdfio.FileFormat.BINARY,
     )
@@ -1382,7 +1382,7 @@ def test_save_as_reports_a_point_cloud_that_cannot_be_an_sdf_file(
     window._exporter.write_export(
         x3pio.PointCloud.from_points(make_cloud()),
         str(tmp_path / "cloud.sdf"),
-        sdfio.SdfDialect.ISO_2_0,
+        sdfio.Revision.ISO_2_0,
         sdfio.DataType.BINARY64,
         sdfio.FileFormat.BINARY,
     )
@@ -1482,7 +1482,7 @@ def test_an_sdf_file_is_saved_with_the_z_offset_added_or_without(tmp_path: Path)
     placed = make_placed_x3p(make_ramp())
     window = MainWindow()
     export = window._exporter.write_export
-    args = (sdfio.SdfDialect.ISO_2_0, sdfio.DataType.BINARY64, sdfio.FileFormat.BINARY)
+    args = (sdfio.Revision.ISO_2_0, sdfio.DataType.BINARY64, sdfio.FileFormat.BINARY)
 
     export(placed, str(tmp_path / "plain.sdf"), *args)
     export(placed, str(tmp_path / "global.sdf"), *args, 0, False, True)
@@ -1658,7 +1658,7 @@ def test_the_chosen_layer_is_saved_as_an_sdf_file(
         window._exporter.write_export(
             file,  # type: ignore[arg-type]
             str(target),
-            sdfio.SdfDialect.ISO_2_0,
+            sdfio.Revision.ISO_2_0,
             sdfio.DataType.BINARY64,
             sdfio.FileFormat.BINARY,
             layer,

@@ -64,13 +64,13 @@ def _sdf_rows(sdf: SdfFile) -> list[tuple[str, str]]:
         ("ManufacID", header.manufacturer_id),
         ("CreateDate", str(header.create_date) if header.create_date else ""),
         ("ModDate", str(header.mod_date) if header.mod_date else ""),
-        ("NumPoints", str(header.num_points)),
-        ("NumProfiles", str(header.num_profiles)),
+        ("NumPoints", str(sdf.data.shape[1])),
+        ("NumProfiles", str(sdf.data.shape[0])),
         ("Xscale", f"{header.x_scale:g}"),
         ("Yscale", f"{header.y_scale:g}"),
         ("Zscale", f"{header.z_scale:g}"),
         ("Zresolution", f"{header.z_resolution:g}"),
-        ("DataType", sdf.data_type.name.lower()),
+        ("DataType", header.data_type.name.lower()),
     ]
 
 
