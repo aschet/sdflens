@@ -363,6 +363,8 @@ class MainWindow(QMainWindow):
         self._info_dock = QDockWidget(self.tr("Information"), self)
         self._info_dock.setObjectName("infoDock")
         self._info_dock.setWidget(info)
+        # Like the drawer of sdflens web, it stays at the side and is closed, not moved around.
+        self._info_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._info_dock)
         self._info_toggle_action = self._info_dock.toggleViewAction()
         self._info_toggle_action.setText(self.tr("In&formation"))

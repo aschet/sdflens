@@ -229,10 +229,6 @@ QStatusBar {{
 QStatusBar::item {{
     border: 0;
 }}
-QDockWidget {{
-    titlebar-close-icon: none;
-    titlebar-normal-icon: none;
-}}
 QDockWidget::title {{
     background: {t.surface};
     border-bottom: 1px solid {t.border};
