@@ -39,7 +39,6 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
-    QSizePolicy,
     QToolBar,
 )
 
@@ -54,7 +53,7 @@ from sdflens.exporter import Exporter
 from sdflens.glwidget import RenderMode, SurfaceView, _primitives
 from sdflens.heatmap import HeatmapView, _block_size, _reduce
 from sdflens.icons import load_icon
-from sdflens.infopanel import format_metadata, metadata_rows
+from sdflens.infopanel import format_metadata
 from sdflens.loader import Loader
 from sdflens.mainwindow import MainWindow
 from sdflens.mesh import SurfaceMesh
@@ -303,36 +302,15 @@ def test_colorbar_paints_with_and_without_range() -> None:
     assert not bar.grab().isNull()
 
 
-def test_metadata_lists_header_fields_only() -> None:
-    rows = dict(metadata_rows(make_sdf(make_ramp())))
-
-    assert list(rows) == [
-        "Version",
-        "ManufacID",
-        "CreateDate",
-        "ModDate",
-        "NumPoints",
-        "NumProfiles",
-        "Xscale",
-        "Yscale",
-        "Zscale",
-        "Zresolution",
-        "DataType",
-    ]
-    assert rows["Version"] == "bISO-2.0"
-    assert rows["NumPoints"] == str(COLS)
-    assert rows["Zresolution"] == "-1"
-
-
 def test_metadata_text_includes_the_trailer(tmp_path: Path) -> None:
     path = tmp_path / "trailer.sdf"
     sdfio.write(path, make_ramp(), x_scale=1e-6, y_scale=1e-6, trailer="OperatorName = Jane\r\n")
     text = format_metadata(sdfio.read(path))
 
-    assert text.startswith("Version")
-    assert "Trailer" in text
+    assert text.startswith("FILE")
+    assert "\n\nTRAILER\nOperatorName = Jane" in text
     assert text.rstrip().endswith("OperatorName = Jane")
-    assert "Trailer" not in format_metadata(make_sdf(make_ramp()))
+    assert "TRAILER" not in format_metadata(make_sdf(make_ramp()))
 
 
 def test_loader_reads_in_the_background(ramp_path: Path) -> None:
@@ -426,7 +404,12 @@ def test_main_window_loads_file_and_switches_views(ramp_path: Path) -> None:
     assert window._model is not None
     assert window._open_action.isEnabled()
     assert window.windowTitle() == "ramp.sdf"
-    assert window._info_panel.table.rowCount() == 11
+    assert [section.title for section in window._info_panel.sections] == [
+        "File",
+        "Data",
+        "Instrument",
+        "Probing",
+    ]
     assert window._stats_label.text() == "FOV 5 \u00d7 8 \u00b5m, PV 19 nm"
     assert window._path == QDir.toNativeSeparators(str(ramp_path))
     assert window.statusBar().currentMessage() == "Loaded ramp.sdf"
@@ -461,14 +444,10 @@ def test_x3p_surface_shows_its_metadata_and_vendor_extensions(tmp_path: Path) ->
     window = MainWindow()
     _load(window, path)
     panel = window._info_panel
-    names = [
-        item.text()
-        for item in (panel.table.item(row, 0) for row in range(panel.table.rowCount()))
-        if item is not None
-    ]
+    names = [name for section in panel.sections for name, _ in section.rows]
 
     assert "Revision" in names
-    assert "MatrixDimension.SizeX" in names
+    assert "Dimension" in names
     assert "Creator" in names
     assert not panel.extensions.isHidden()
     assert panel.trailer.isHidden()
@@ -497,7 +476,7 @@ def test_export_and_copy_of_an_x3p_file_act_on_the_information(
     assert window._copy_metadata_action.isEnabled()
     window._export_action.trigger()
     text = target.read_text(encoding="utf-8")
-    assert "FeatureType" in text
+    assert "Feature         Surface" in text
     assert "http://www.vendor.com/mypath/a.xml" in text  # the extensions are listed
 
     QGuiApplication.clipboard().clear()
@@ -641,6 +620,29 @@ def test_export_and_copy_of_an_sdf_file_act_on_the_information(ramp_path: Path) 
     window.close()
 
 
+def test_a_profile_has_no_2d_view_and_a_preferred_2d_view_gives_way_to_the_profile_view(
+    ramp_path: Path, tmp_path: Path
+) -> None:
+    profile_path = tmp_path / "profile.sdf"
+    heights = 1e-7 * np.sin(np.linspace(0.0, 6.0, 40)).reshape(1, -1)
+    sdfio.write(profile_path, heights, x_scale=1e-6, y_scale=1e-6, z_scale=1e-12)
+    window = MainWindow()
+    window._choose_view("2d")
+    _load(window, ramp_path)
+
+    assert window._current_mode() == "2d"
+    assert window._view_2d_action.isEnabled()
+    _load(window, profile_path)
+    assert not window._view_2d_action.isEnabled()
+    assert window._view_profile_action.isEnabled()
+    assert window._view_3d_action.isEnabled()  # the 3D view shows a profile as well
+    assert window._current_mode() == "profile"
+    _load(window, ramp_path)  # the choice of the 2D view is not forgotten
+    assert window._current_mode() == "2d"
+    assert window._view_2d_action.isEnabled()
+    window.close()
+
+
 def test_point_cloud_has_no_2d_or_profile_view(ramp_path: Path, tmp_path: Path) -> None:
     cloud_path = tmp_path / "cloud.x3p"
     x3pio.write_points(cloud_path, make_cloud())
@@ -687,7 +689,7 @@ def test_information_dock_shows_the_header_and_can_be_toggled(ramp_path: Path) -
     assert window._info_dock.isVisible()
     _load(window, ramp_path)
 
-    assert window._info_panel.table.rowCount() == 11
+    assert len(window._info_panel.sections) == 4
     assert window._export_action.isEnabled()
     window._info_toggle_action.trigger()
     assert not window._info_dock.isVisible()
@@ -696,17 +698,31 @@ def test_information_dock_shows_the_header_and_can_be_toggled(ramp_path: Path) -
     window.close()
 
 
-def test_information_table_has_no_header_and_fits_its_rows(ramp_path: Path) -> None:
+def test_information_panel_shows_labelled_values_that_can_be_selected(ramp_path: Path) -> None:
     window = MainWindow()
     _load(window, ramp_path)
-    table = window._info_panel.table
+    panel = window._info_panel
+    texts = [label.text() for label in panel.findChildren(QLabel)]
 
-    assert table.horizontalHeader().isHidden()
-    assert table.selectionMode() == QAbstractItemView.SelectionMode.NoSelection
-    content = table.verticalHeader().length() + 2 * table.frameWidth()
-    assert table.sizeHint().height() >= content  # a short table is shown completely
-    assert table.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Fixed
-    assert table.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    # The headings are in capitals, the labels and the values are separate texts.
+    assert texts[:2] == ["FILE", "Format"]
+    assert "SDF binary" in texts
+    assert "Dimension" in texts
+    assert all(
+        label.textInteractionFlags() & Qt.TextInteractionFlag.TextSelectableByMouse
+        for label in panel.findChildren(QLabel)
+        if not label.text().isupper()
+    )
+    # The values of all sections start at the same place.
+    values = [label for label in panel.findChildren(QLabel) if label.text() == "SDF binary"]
+    steps = [label for label in panel.findChildren(QLabel) if "\u00d7" in label.text()]
+    assert values
+    assert steps
+    assert values[0].mapTo(panel, QPoint(0, 0)).x() == steps[0].mapTo(panel, QPoint(0, 0)).x()
+    # Without a trailer or extensions there is nothing for them.
+    assert panel.trailer.isHidden()
+    assert panel.extensions.isHidden()
+    window.close()
 
 
 def test_file_dialogs_start_in_documents_and_remember_the_last_folder(
@@ -840,7 +856,7 @@ def test_export_and_copy_metadata(
     window._export_metadata()
     window._copy_metadata()
 
-    assert "ManufacID" in target.read_text(encoding="utf-8")
+    assert "Manufacturer" in target.read_text(encoding="utf-8")
     assert QGuiApplication.clipboard().text() == target.read_text(encoding="utf-8")
 
 
@@ -917,7 +933,7 @@ def test_command_line_takes_only_an_optional_file_name(capsys: pytest.CaptureFix
     capsys.readouterr()
 
 
-def test_copy_metadata_contains_header_fields_and_trailer(tmp_path: Path) -> None:
+def test_copy_metadata_is_what_the_panel_shows(tmp_path: Path) -> None:
     path = tmp_path / "trailer.sdf"
     sdfio.write(path, make_ramp(), x_scale=1e-6, y_scale=1e-6, trailer="OperatorName = Jane\r\n")
     window = MainWindow()
@@ -925,8 +941,17 @@ def test_copy_metadata_contains_header_fields_and_trailer(tmp_path: Path) -> Non
     window._copy_metadata()
     text = QGuiApplication.clipboard().text()
 
-    assert "ManufacID" in text
-    assert "Xscale" in text
+    # Runs of white space are one space: the aligned columns, and the narrow no-break space that
+    # some systems write before PM.
+    def squeeze(line: str) -> str:
+        return " ".join(line.split())
+
+    lines = [squeeze(line) for line in text.splitlines()]
+    # Every section of the panel is in the text, with each of its labels and values on one line.
+    for section in window._info_panel.sections:
+        assert section.title.upper() in lines
+        for label, value in section.rows:
+            assert squeeze(f"{label} {value}") in lines
     assert text.rstrip().endswith("OperatorName = Jane")
     assert window._info_panel.trailer.toPlainText().strip() == "OperatorName = Jane"
 

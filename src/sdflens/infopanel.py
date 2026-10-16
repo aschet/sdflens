@@ -9,25 +9,23 @@ from __future__ import annotations
 from datetime import datetime
 from typing import cast
 
-import x3pio
-from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtCore import QCoreApplication, QDateTime, QLocale, QPoint, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QAbstractScrollArea,
-    QHeaderView,
+    QFrame,
+    QGridLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QMenu,
     QPlainTextEdit,
-    QSizePolicy,
-    QTableWidget,
-    QTableWidgetItem,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 from sdfio import SdfFile
 
+from .fileinfo import InfoSection, describe_file
 from .icons import load_icon
 from .surfacefile import SurfaceFile
 
@@ -35,95 +33,14 @@ __all__ = [
     "InfoPanel",
     "extension_names",
     "format_metadata",
-    "metadata_rows",
     "trailer_text",
 ]
 
 #: Width in characters that fits the longest values, such as the revision of an x3p file.
 _MIN_COLUMNS = 48
 
-#: A table of at most this many rows is shown completely; a longer one scrolls.
-_MAX_FIXED_ROWS = 12
-
-
-def metadata_rows(file: SurfaceFile) -> list[tuple[str, str]]:
-    """Return the header fields as ``(name, value)`` rows, named as in the standard.
-
-    Lengths are in meters, like in ``sdfio info``. For an x3p file these are the fields of
-    Record 1 (``Revision``, the data layout, the axes and the rotation) and of Record 2.
-    """
-    if isinstance(file, SdfFile):
-        return _sdf_rows(file)
-    return _x3p_rows(file)
-
-
-def _sdf_rows(sdf: SdfFile) -> list[tuple[str, str]]:
-    header = sdf.header
-    return [
-        ("Version", header.magic),
-        ("ManufacID", header.manufacturer_id),
-        ("CreateDate", str(header.create_date) if header.create_date else ""),
-        ("ModDate", str(header.mod_date) if header.mod_date else ""),
-        ("NumPoints", str(sdf.data.shape[1])),
-        ("NumProfiles", str(sdf.data.shape[0])),
-        ("Xscale", f"{header.x_scale:g}"),
-        ("Yscale", f"{header.y_scale:g}"),
-        ("Zscale", f"{header.z_scale:g}"),
-        ("Zresolution", f"{header.z_resolution:g}"),
-        ("DataType", header.data_type.name.lower()),
-    ]
-
-
-def _date(value: datetime | None) -> str:
-    return value.isoformat(timespec="milliseconds") if value is not None else ""
-
-
-def _x3p_rows(x3p: x3pio.X3pFile) -> list[tuple[str, str]]:
-    header = x3p.header
-    placement = x3p.placement
-    shape = x3p.layers[0].shape
-    rows = [("Revision", x3p.revision.value), ("FeatureType", x3p.feature_type.value)]
-    if isinstance(x3p, x3pio.PointCloud):
-        rows.append(("ListDimension", str(shape[0])))
-    else:
-        num_rows, num_columns = (1, shape[0]) if isinstance(x3p, x3pio.Profile) else shape
-        rows += [
-            ("MatrixDimension.SizeX", str(num_columns)),
-            ("MatrixDimension.SizeY", str(num_rows)),
-            ("MatrixDimension.SizeZ", str(len(x3p.layers))),
-        ]
-    for index, (name, axis) in enumerate((("CX", header.x), ("CY", header.y), ("CZ", header.z))):
-        rows += [
-            (f"{name}.AxisType", axis.axis_type.name.lower()),
-            (f"{name}.DataType", axis.data_type.name.lower()),
-            (f"{name}.Increment", f"{axis.increment:g}"),
-            (f"{name}.Offset", f"{placement.offset[index]:g}"),
-        ]
-    if placement.has_rotation:
-        rotation = "; ".join(" ".join(f"{value:g}" for value in row) for row in placement.rotation)
-        rows.append(("Rotation", rotation))
-    if not x3p.revision.has_vendor_ids:
-        vendor_ids = x3p.extensions.vendor_ids
-        rows.append(("VendorSpecificID", vendor_ids[0] if vendor_ids else ""))
-    metadata = x3p.metadata
-    if metadata is not None:
-        optional = [
-            ("Creator", metadata.creator or ""),
-            ("CalibrationDate", _date(metadata.calibration_date)),
-            ("Comment", metadata.comment or ""),
-        ]
-        probing = metadata.probing_system
-        rows += [
-            ("Date", _date(metadata.date)),
-            ("Instrument.Manufacturer", metadata.instrument.manufacturer),
-            ("Instrument.Model", metadata.instrument.model),
-            ("Instrument.Serial", metadata.instrument.serial),
-            ("Instrument.Version", metadata.instrument.version),
-            ("ProbingSystem.Type", probing.type.value if probing.type else ""),
-            ("ProbingSystem.Identification", probing.identification),
-        ]
-        rows += [row for row in optional if row[1]]
-    return rows
+#: The trailer and the list of extensions show at most this many lines before they scroll.
+_MAX_BLOCK_LINES = 10
 
 
 def extension_names(file: SurfaceFile) -> list[str]:
@@ -141,30 +58,47 @@ def trailer_text(sdf: SdfFile) -> str:
     return trailer if isinstance(trailer, str) else trailer.decode("ascii", errors="replace")
 
 
+def _translated(text: str) -> str:
+    """Return ``text`` as the panel shows it, in the language of the system."""
+    return QCoreApplication.translate("InfoPanel", text)
+
+
 def format_metadata(file: SurfaceFile) -> str:
-    """Return the header fields and the trailer or extensions as text.
+    """Return the information of ``file`` as text, as the panel shows it.
 
-    The layout is that of ``sdfio info``: ``name = value`` lines. An SDF file ends with its
-    trailer, an x3p file with the list of its vendor extensions.
+    The sections are those of the panel, each with its title in capitals and its labelled values
+    below it, followed by the trailer of an SDF file or the vendor extensions of an x3p file.
     """
-    rows = metadata_rows(file)
-    width = max(len(name) for name, _ in rows)
-    lines = [f"{name:<{width}} = {value}" for name, value in rows]
-    if isinstance(file, SdfFile):
-        text = trailer_text(file)
-        if text.strip():
-            lines.append(f"{'Trailer':<{width}} =")
-            lines.extend(text.splitlines())
-    else:
-        extensions = extension_names(file)
-        if extensions:
-            lines.append(f"{'VendorExtensions':<{width}} =")
-            lines.extend(extensions)
-    return "\n".join(lines) + "\n"
+    sections = describe_file(file, _format_date)
+    width = max(
+        (len(_translated(name)) for section in sections for name, _ in section.rows), default=0
+    )
+    blocks: list[list[str]] = []
+    for section in sections:
+        lines = [_translated(section.title).upper()]
+        if section.text:
+            lines.append(section.text)
+        lines += [f"{_translated(name):<{width}}  {value}" for name, value in section.rows]
+        blocks.append(lines)
+    trailer = trailer_text(file).strip() if isinstance(file, SdfFile) else ""
+    if trailer:
+        blocks.append([_translated("Trailer").upper(), *trailer.splitlines()])
+    extensions = extension_names(file)
+    if extensions:
+        blocks.append([_translated("Vendor extensions").upper(), *extensions])
+    return "\n\n".join("\n".join(lines) for lines in blocks) + "\n"
 
 
-class InfoPanel(QWidget):
-    """Read-only table of the header fields with the trailer or the vendor extensions below.
+def _format_date(value: datetime) -> str:
+    """Write ``value`` in the local time and the language of the system."""
+    return QLocale().toString(QDateTime(value).toLocalTime(), QLocale.FormatType.ShortFormat)
+
+
+class InfoPanel(QScrollArea):
+    """Read-only description of the loaded file in sections of labelled values.
+
+    The sections are those of :func:`~sdflens.fileinfo.describe_file`, as in sdflens web. Below them
+    an SDF file has its trailer and an x3p file its vendor extensions, each only if it has some.
 
     ``extension_save_requested(name)`` is emitted when "Save as" is chosen in the context menu of a
     vendor extension; ``name`` is its ID, or its path for ISO 25178-72:2017.
@@ -176,63 +110,109 @@ class InfoPanel(QWidget):
         """Create an empty panel."""
         super().__init__(parent)
         self.setMinimumWidth(_MIN_COLUMNS * self.fontMetrics().averageCharWidth())
-        self.table = QTableWidget(0, 2, self)
-        self.table.verticalHeader().hide()
-        self.table.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        header = self.table.horizontalHeader()
-        header.hide()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        #: The sections that are shown, in order; empty without a file.
+        self.sections: list[InfoSection] = []
 
         self.trailer = QPlainTextEdit(self)
         self.trailer.setReadOnly(True)
-        self._trailer_label = QLabel(self.tr("Trailer"), self)
         self.extensions = QListWidget(self)
         self.extensions.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.extensions.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.extensions.customContextMenuRequested.connect(self._show_extension_menu)
-        self._extensions_label = QLabel(self.tr("Vendor extensions"), self)
+        self.trailer.hide()
+        self.extensions.hide()
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.table)
-        layout.addWidget(self._trailer_label)
-        layout.addWidget(self.trailer, 1)
-        layout.addWidget(self._extensions_label)
-        layout.addWidget(self.extensions, 1)
-        self._show_extensions(False)
+        self._content = QWidget(self)
+        self._layout = QVBoxLayout(self._content)
+        self._layout.setContentsMargins(12, 10, 12, 10)
+        self._layout.setSpacing(6)
+        self.setWidget(self._content)
 
     def set_file(self, file: SurfaceFile | None) -> None:
-        """Show the header of ``file`` and its trailer or vendor extensions, or nothing."""
-        rows = metadata_rows(file) if file is not None else []
-        self.table.setRowCount(len(rows))
-        for row, (name, value) in enumerate(rows):
-            self.table.setItem(row, 0, QTableWidgetItem(name))
-            self.table.setItem(row, 1, QTableWidgetItem(value))
-        self._fit_table(len(rows))
-
-        is_sdf = isinstance(file, SdfFile)
-        self._show_extensions(file is not None and not is_sdf)
-        self.trailer.setPlainText(trailer_text(file) if isinstance(file, SdfFile) else "")
-        self.extensions.clear()
-        if file is not None and not isinstance(file, SdfFile):
-            self.extensions.addItems(extension_names(file))
-
-    def _fit_table(self, rows: int) -> None:
-        """Show a short table completely, and let a long one scroll in the space it gets."""
-        fixed = rows <= _MAX_FIXED_ROWS
-        scrollbar = (
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff if fixed else Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        """Show the description of ``file`` and its trailer or vendor extensions, or nothing."""
+        self._clear()
+        self.sections = describe_file(file, _format_date) if file is not None else []
+        # The values of all sections start at the same place, after the longest label.
+        metrics = self.fontMetrics()
+        label_width = max(
+            (
+                metrics.horizontalAdvance(_translated(name))
+                for section in self.sections
+                for name, _ in section.rows
+            ),
+            default=0,
         )
-        vertical = QSizePolicy.Policy.Fixed if fixed else QSizePolicy.Policy.Expanding
-        self.table.setVerticalScrollBarPolicy(scrollbar)
-        self.table.setSizePolicy(QSizePolicy.Policy.Preferred, vertical)
-        self.table.updateGeometry()
-        stretch = 0 if fixed else 2
-        cast(QVBoxLayout, self.layout()).setStretchFactor(self.table, stretch)
+        for section in self.sections:
+            self._add_heading(section.title)
+            if section.text:
+                self._layout.addWidget(self._selectable(section.text))
+            else:
+                self._layout.addWidget(self._rows(section.rows, label_width))
+
+        text = trailer_text(file).strip() if isinstance(file, SdfFile) else ""
+        self.trailer.setPlainText(text)
+        names = extension_names(file) if file is not None else []
+        self.extensions.clear()
+        self.extensions.addItems(names)
+        self.extensions.setCurrentRow(-1)
+        self.extensions.clearSelection()
+        if text:
+            self._add_heading("Trailer")
+            self._show_block(self.trailer, text.count("\n") + 1)
+        if names:
+            self._add_heading("Vendor extensions")
+            self._show_block(self.extensions, len(names))
+        self._layout.addStretch(1)
+
+    def _clear(self) -> None:
+        """Remove what is shown, keeping the trailer and the extensions for the next file."""
+        while (item := self._layout.takeAt(0)) is not None:
+            widget = item.widget()
+            if widget in (self.trailer, self.extensions):
+                cast(QWidget, widget).hide()
+            elif widget is not None:
+                widget.deleteLater()
+
+    def _add_heading(self, title: str) -> None:
+        heading = QLabel(_translated(title).upper(), self._content)
+        font = heading.font()
+        font.setBold(True)
+        font.setPointSizeF(font.pointSizeF() * 0.85)
+        heading.setFont(font)
+        heading.setContentsMargins(0, 10, 0, 0)
+        self._layout.addWidget(heading)
+
+    def _selectable(self, text: str) -> QLabel:
+        """Return a label that wraps long text and lets it be selected and copied."""
+        label = QLabel(text, self._content)
+        label.setWordWrap(True)
+        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        return label
+
+    def _rows(self, rows: tuple[tuple[str, str], ...], label_width: int) -> QWidget:
+        """Return the labelled values of a section: each label with its value beside it."""
+        grid = QWidget(self._content)
+        layout = QGridLayout(grid)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setHorizontalSpacing(12)
+        layout.setVerticalSpacing(3)
+        layout.setColumnStretch(1, 1)
+        layout.setColumnMinimumWidth(0, label_width)
+        for index, (label, value) in enumerate(rows):
+            name = self._selectable(_translated(label))
+            name.setWordWrap(False)
+            layout.addWidget(name, index, 0, Qt.AlignmentFlag.AlignTop)
+            layout.addWidget(self._selectable(value), index, 1)
+        return grid
+
+    def _show_block(self, block: QWidget, lines: int) -> None:
+        """Show the trailer or the extensions with room for their lines, at most ten of them."""
+        shown = min(lines, _MAX_BLOCK_LINES)
+        block.setFixedHeight((shown + 1) * self.fontMetrics().lineSpacing() + 8)
+        self._layout.addWidget(block)
+        block.show()
 
     def extension_menu(self, item: QListWidgetItem) -> QMenu:
         """Return the context menu of the vendor extension ``item``."""
@@ -246,9 +226,3 @@ class InfoPanel(QWidget):
         item = self.extensions.itemAt(position) or self.extensions.currentItem()
         if item is not None:
             self.extension_menu(item).popup(self.extensions.viewport().mapToGlobal(position))
-
-    def _show_extensions(self, extensions: bool) -> None:
-        self._trailer_label.setVisible(not extensions)
-        self.trailer.setVisible(not extensions)
-        self._extensions_label.setVisible(extensions)
-        self.extensions.setVisible(extensions)

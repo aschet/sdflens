@@ -181,7 +181,7 @@ class Exporter(QObject):
             self.message.emit(self.tr("Screenshot copied to clipboard"), 3000)
 
     def export_metadata(self, file: SurfaceFile, source: str | None) -> None:
-        """Save the header fields and trailer or vendor extensions of ``file`` as a text file."""
+        """Save the information of ``file`` as the panel shows it, as a text file."""
         path = self._ask_save_path(
             self.tr("Export information"),
             f"{Path(source).stem}.txt" if source else "information.txt",
@@ -197,7 +197,7 @@ class Exporter(QObject):
             )
 
     def copy_metadata(self, file: SurfaceFile) -> None:
-        """Put the header fields and trailer or vendor extensions of ``file`` on the clipboard."""
+        """Put the information of ``file`` as the panel shows it on the clipboard."""
         QGuiApplication.clipboard().setText(format_metadata(file))
         self.message.emit(self.tr("Information copied to clipboard"), 3000)
 
