@@ -22,26 +22,23 @@ _MARGIN_BOTTOM = 14
 _BAR_LEFT = 10
 _BAR_WIDTH = 20
 _TICK_LENGTH = 5
-_SWATCH = 12
 
 
 class ColorBar(QWidget):
-    """Vertical color scale showing the height range and a legend for non-measured points."""
+    """Vertical color scale showing the height range."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Create an empty color bar."""
         super().__init__(parent)
         self._image: QImage | None = None
         self._range: ValueRange | None = None
-        self._has_invalid = False
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
 
     def sizeHint(self) -> QSize:
-        """Return a width fitting the tick labels and the legend in the current font."""
+        """Return a width fitting the tick labels in the current font."""
         metrics = self.fontMetrics()
         ticks = _BAR_WIDTH + _TICK_LENGTH + 3 + metrics.horizontalAdvance("-0.000")
-        legend = _SWATCH + 5 + metrics.horizontalAdvance(self.tr("not measured"))
-        return QSize(_BAR_LEFT + max(ticks, legend) + _BAR_LEFT, 0)
+        return QSize(_BAR_LEFT + ticks + _BAR_LEFT, 0)
 
     def set_lut(self, lut: NDArray[np.uint8]) -> None:
         """Set the ``(256, 3)`` color lookup table."""
@@ -51,14 +48,13 @@ class ColorBar(QWidget):
         ).copy()
         self.update()
 
-    def set_range(self, value_range: ValueRange | None, has_invalid: bool = False) -> None:
-        """Set the displayed height range and whether non-measured points exist."""
+    def set_range(self, value_range: ValueRange | None) -> None:
+        """Set the displayed height range."""
         self._range = value_range
-        self._has_invalid = has_invalid
         self.update()
 
     def paintEvent(self, event: QPaintEvent) -> None:
-        """Draw the gradient, ticks and legend."""
+        """Draw the gradient, ticks."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -71,9 +67,8 @@ class ColorBar(QWidget):
         text_color = self.palette().windowText().color()
         painter.setPen(text_color)
 
-        legend_height = _SWATCH + 8 if self._has_invalid else 0
         bar_top = _MARGIN_TOP
-        bar_height = self.height() - _MARGIN_TOP - _MARGIN_BOTTOM - legend_height
+        bar_height = self.height() - _MARGIN_TOP - _MARGIN_BOTTOM
         if self._image is None or self._range is None or bar_height < 20:
             return
         bar = QRectF(_BAR_LEFT, bar_top, _BAR_WIDTH, bar_height)
@@ -94,12 +89,4 @@ class ColorBar(QWidget):
                 int(x + _TICK_LENGTH + 3),
                 int(y + metrics.ascent() / 2 - 1),
                 format_tick(tick, factor),
-            )
-
-        if self._has_invalid:
-            swatch = QRectF(_BAR_LEFT, self.height() - _MARGIN_BOTTOM - _SWATCH, _SWATCH, _SWATCH)
-            painter.fillRect(swatch, self.palette().window())
-            painter.drawRect(swatch)
-            painter.drawText(
-                int(swatch.right() + 5), int(swatch.bottom() - 1), self.tr("not measured")
             )

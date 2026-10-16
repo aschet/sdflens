@@ -297,7 +297,7 @@ def test_colorbar_paints_with_and_without_range() -> None:
     bar.resize(bar.width(), 300)
     bar.grab()
     bar.set_lut(build_lut("Inferno"))
-    bar.set_range(model.value_range, has_invalid=True)
+    bar.set_range(model.value_range)
 
     assert not bar.grab().isNull()
 

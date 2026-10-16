@@ -662,7 +662,7 @@ class MainWindow(QMainWindow):
         grid = model if isinstance(model, SurfaceModel) else None
         self._heatmap_view.set_model(grid)
         self._profile_view.set_model(model)
-        self._colorbar.set_range(model.value_range, model.invalid_count > 0)
+        self._colorbar.set_range(model.value_range)
         self._info_panel.set_file(file)
         self._stats_label.setText(self._stats_text(model, mesh))
         self._z_bar.set_factor(1.0)
@@ -731,7 +731,7 @@ class MainWindow(QMainWindow):
         grid = model if isinstance(model, SurfaceModel) else None
         self._heatmap_view.set_model(grid, keep_view=True)
         self._profile_view.set_model(model, keep_selection=True)
-        self._colorbar.set_range(model.value_range, model.invalid_count > 0)
+        self._colorbar.set_range(model.value_range)
         self._stats_label.setText(self._stats_text(model, mesh))
         self._update_actions()
         wanted, self._pending_layer = self._pending_layer, None
