@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QPlainTextEdit,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -39,8 +40,8 @@ __all__ = [
 #: Narrowest width in characters; longer values wrap.
 _MIN_COLUMNS = 28
 
-#: The trailer and the list of extensions always have room for this many lines.
-_MIN_BLOCK_LINES = 3
+#: The trailer and the list of extensions may shrink to this many lines to fit the panel.
+_MIN_BLOCK_LINES = 2
 
 
 def extension_names(file: SurfaceFile) -> list[str]:
@@ -213,6 +214,8 @@ class InfoPanel(QScrollArea):
         spacing = self.fontMetrics().lineSpacing()
         block.setMinimumHeight((min(lines, _MIN_BLOCK_LINES) + 1) * spacing + 8)
         block.setMaximumHeight((lines + 1) * spacing + 8)
+        # Its own size hint is ignored: the panel gives it what the sections leave free.
+        block.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
         self._layout.addWidget(block, 1)
         block.show()
 
