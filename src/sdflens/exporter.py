@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QWidget
 
 from .convert import convert_file
 from .exportdialog import SaveOptionsDialog
+from .gltf import ViewShape, write_glb
 from .infopanel import format_metadata
 from .settings import Settings
 from .surfacefile import FILE_ERRORS, SurfaceFile, is_grid
@@ -179,6 +180,30 @@ class Exporter(QObject):
         if image is not None:
             QGuiApplication.clipboard().setImage(image)
             self.message.emit(self.tr("Screenshot copied to clipboard"), 3000)
+
+    def export_model(self, shape: ViewShape, z_factor: float, source: str | None) -> None:
+        """Save the 3D view as a GLB file: the surface or the points, colored and exaggerated."""
+        path = self._ask_save_path(
+            self.tr("Export 3D model"),
+            f"{Path(source).stem}.glb" if source else "model.glb",
+            self.tr("glTF binary file (*.glb)"),
+        )
+        if not path:
+            return
+        QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
+        error: Exception | None = None
+        try:
+            write_glb(path, shape, z_factor)
+        except (OSError, ValueError) as exc:
+            error = exc
+        finally:
+            QApplication.restoreOverrideCursor()
+        if error is not None:
+            QMessageBox.critical(
+                self._window, self.tr("Cannot export 3D model"), f"{path}\n\n{error}"
+            )
+        else:
+            self.message.emit(self.tr("Saved {path}").format(path=path), 5000)
 
     def export_metadata(self, file: SurfaceFile, source: str | None) -> None:
         """Save the information of ``file`` as the panel shows it, as a text file."""

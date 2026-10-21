@@ -44,6 +44,7 @@ from .colorbar import ColorBar
 from .colormap import build_lut, colormap_names
 from .convert import profile_file
 from .exporter import Exporter, compose_screenshot
+from .gltf import ViewShape
 from .glwidget import RenderMode, SurfaceView
 from .heatmap import HeatmapView
 from .icons import app_icon, load_icon
@@ -77,6 +78,7 @@ class MainWindow(QMainWindow):
         self._model: SurfaceModel | PointCloudModel | None = None
         self._view_preference = _VIEW_3D
         self._path: str | None = None
+        self._mesh: SurfaceMesh | None = None
         self._layer = 0  # the layer that is shown, counted from 0
         self._pending_layer: int | None = None  # a layer to show once the one being built is done
 
@@ -191,6 +193,8 @@ class MainWindow(QMainWindow):
             self.tr("&Copy"), "copy", QKeySequence.StandardKey.Copy, self.tr("Copy screenshot")
         )
         self._copy_screenshot_action.triggered.connect(self._copy_screenshot)
+        self._export_model_action = self._action(self.tr("Export &3D model..."), None)
+        self._export_model_action.triggered.connect(self._export_model)
         self._export_action = self._action(
             self.tr("&Export..."),
             "export",
@@ -387,6 +391,7 @@ class MainWindow(QMainWindow):
         information_menu = file_menu.addMenu(self.tr("&Information"))
         information_menu.addAction(self._export_action)
         information_menu.addAction(self._copy_metadata_action)
+        file_menu.addAction(self._export_model_action)
         file_menu.addSeparator()
         file_menu.addAction(self._quit_action)
 
@@ -551,6 +556,10 @@ class MainWindow(QMainWindow):
         ):
             action.setEnabled(loaded)
         self._save_as_action.setEnabled(loaded)
+        # A profile is a line, not a shape to take to other 3D tools.
+        self._export_model_action.setEnabled(
+            loaded and self._model is not None and not self._model.is_profile
+        )
         self._export_action.setEnabled(loaded)
         self._copy_metadata_action.setEnabled(loaded)
         self._view_2d_action.setEnabled(self._has_2d_view)
@@ -629,6 +638,12 @@ class MainWindow(QMainWindow):
     def _copy_screenshot(self) -> None:
         self._exporter.copy_screenshot(self._capture())
 
+    def _export_model(self) -> None:
+        if self._model is not None and self._mesh is not None:
+            lut = build_lut(self._colormap_combo.currentText(), self._reverse_action.isChecked())
+            shape = ViewShape(self._model, self._mesh, lut)
+            self._exporter.export_model(shape, self._z_bar.factor, self._path)
+
     def _export_metadata(self) -> None:
         if self._file is not None:
             self._exporter.export_metadata(self._file, self._path)
@@ -656,6 +671,7 @@ class MainWindow(QMainWindow):
         QApplication.restoreOverrideCursor()
         self._file = file
         self._model = model
+        self._mesh = mesh
         self._path = path
         self._layer = 0
         self._pending_layer = None
@@ -729,6 +745,7 @@ class MainWindow(QMainWindow):
         """Show another layer of the file in every view, keeping the zoom and the camera."""
         self._layer = layer
         self._model = model
+        self._mesh = mesh
         self._surface_view.set_surface(model, mesh, keep_view=True)
         grid = model if isinstance(model, SurfaceModel) else None
         self._heatmap_view.set_model(grid, keep_view=True)

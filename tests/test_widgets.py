@@ -860,6 +860,36 @@ def test_export_and_copy_metadata(
     assert QGuiApplication.clipboard().text() == target.read_text(encoding="utf-8")
 
 
+def test_export_3d_model_saves_the_view_as_glb(
+    ramp_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "model.glb"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args: (str(target), ""))
+    window = MainWindow()
+    assert not window._export_model_action.isEnabled()
+    _load(window, ramp_path)
+    assert window._export_model_action.isEnabled()
+    window._z_bar.set_factor(5.0)
+    window._export_model()
+
+    data = target.read_bytes()
+    assert data[:4] == b"glTF"
+    assert b'"z_factor":5.0' in data  # the height exaggeration of the view
+    assert b"COLOR_0" in data  # the colors of the view
+    window.close()
+
+
+def test_export_3d_model_is_not_offered_for_a_profile(tmp_path: Path) -> None:
+    profile = tmp_path / "profile.sdf"
+    heights = 1e-7 * np.sin(np.linspace(0.0, 6.0, 40)).reshape(1, -1)
+    sdfio.write(profile, heights, x_scale=1e-6, y_scale=1e-6, z_scale=1e-12)
+    window = MainWindow()
+    _load(window, profile)
+
+    assert not window._export_model_action.isEnabled()
+    window.close()
+
+
 def test_main_window_reports_load_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     messages: list[tuple[object, ...]] = []
     monkeypatch.setattr(QMessageBox, "critical", lambda *args: messages.append(args))
