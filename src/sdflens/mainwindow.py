@@ -44,7 +44,6 @@ from .colorbar import ColorBar
 from .colormap import build_lut, colormap_names
 from .convert import profile_file
 from .exporter import Exporter, compose_screenshot
-from .gltf import ViewShape
 from .glwidget import RenderMode, SurfaceView
 from .heatmap import HeatmapView
 from .icons import app_icon, load_icon
@@ -640,9 +639,7 @@ class MainWindow(QMainWindow):
 
     def _export_model(self) -> None:
         if self._model is not None and self._mesh is not None:
-            lut = build_lut(self._colormap_combo.currentText(), self._reverse_action.isChecked())
-            shape = ViewShape(self._model, self._mesh, lut)
-            self._exporter.export_model(shape, self._z_bar.factor, self._path)
+            self._exporter.export_model(self._model, self._mesh, self._path)
 
     def _export_metadata(self) -> None:
         if self._file is not None:

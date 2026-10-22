@@ -18,9 +18,11 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QWidget
 
 from .convert import convert_file
 from .exportdialog import SaveOptionsDialog
-from .gltf import ViewShape, write_glb
+from .gltf import write_glb
 from .infopanel import format_metadata
+from .mesh import SurfaceMesh
 from .settings import Settings
+from .surface import Model3D
 from .surfacefile import FILE_ERRORS, SurfaceFile, is_grid
 
 __all__ = ["Exporter", "compose_screenshot"]
@@ -181,8 +183,8 @@ class Exporter(QObject):
             QGuiApplication.clipboard().setImage(image)
             self.message.emit(self.tr("Screenshot copied to clipboard"), 3000)
 
-    def export_model(self, shape: ViewShape, z_factor: float, source: str | None) -> None:
-        """Save the 3D view as a GLB file: the surface or the points, colored and exaggerated."""
+    def export_model(self, model: Model3D, mesh: SurfaceMesh, source: str | None) -> None:
+        """Save the 3D view as a GLB file: the surface or the points, in real size."""
         path = self._ask_save_path(
             self.tr("Export 3D model"),
             f"{Path(source).stem}.glb" if source else "model.glb",
@@ -193,7 +195,7 @@ class Exporter(QObject):
         QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
         error: Exception | None = None
         try:
-            write_glb(path, shape, z_factor)
+            write_glb(path, mesh, model)
         except (OSError, ValueError) as exc:
             error = exc
         finally:

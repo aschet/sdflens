@@ -15,7 +15,7 @@ x3p files (`.x3p`), built on [sdfio](https://github.com/aschet/sdfio),
 - Selectable, reversible colormaps with a color bar; non-measured points are left empty.
 - Shows and exports the metadata; vendor extensions of x3p files can be saved.
 - Saves files, or the shown profile, as SDF or x3p, with conversion between the formats.
-- Exports the 3D view as a glTF binary (`.glb`) with its colors and height scale, for other 3D tools.
+- Exports the surface or point cloud as a glTF binary (`.glb`) in real size, for other 3D tools.
 - Screenshots as PNG file or on the clipboard.
 
 Try it with the sample [samples/microlens-array.sdf](samples/microlens-array.sdf).
