@@ -869,13 +869,13 @@ def test_export_3d_model_saves_the_view_as_glb(
     assert not window._export_model_action.isEnabled()
     _load(window, ramp_path)
     assert window._export_model_action.isEnabled()
-    window._z_bar.set_factor(5.0)
+    window._z_bar.set_factor(5.0)  # the exaggeration of the view is not exported
     window._export_model()
 
     data = target.read_bytes()
     assert data[:4] == b"glTF"
-    assert b'"z_factor":5.0' in data  # the height exaggeration of the view
-    assert b"COLOR_0" in data  # the colors of the view
+    assert b"z_factor" not in data
+    assert b"COLOR_0" not in data
     window.close()
 
 
